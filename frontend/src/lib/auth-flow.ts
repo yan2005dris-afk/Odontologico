@@ -12,6 +12,7 @@
 
 import { isUserRole, type UserRole } from "./roles.ts";
 import type {
+  AuthenticatedUserWire,
   LoginWireResponse,
   VerifyMfaWireResponse,
 } from "./gateway-server.ts";
@@ -129,6 +130,22 @@ export function toAuthenticatedSession(
   };
 }
 
+/**
+ * Builds the session payload from a login response that already carries the
+ * session, which is what happens when the deployment runs without the MFA
+ * requirement (wi-18 S1).
+ */
+export function toSessionFromLogin(
+  response: LoginWireResponse
+): AuthenticatedSession {
+  return toAuthenticatedSession({
+    access_token: response?.access_token,
+    session_id: response?.session_id,
+    user: response?.user as AuthenticatedUserWire | undefined,
+    idle_timeout_seconds: response?.idle_timeout_seconds,
+  });
+}
+
 export interface AuthFlow {
   submitCredentials(
     state: AuthFlowState,
@@ -163,6 +180,23 @@ export function createAuthFlow(gateway: AuthGateway): AuthFlow {
 
       try {
         const response = await gateway.login(email, input.password);
+
+        // Development mode (wi-18 S1): the identity service opened the
+        // session right after the password check, so there is no TOTP step.
+        if (!response?.mfa_required && response?.access_token) {
+          const session = toSessionFromLogin(response);
+          if (session.accessToken === "") {
+            return {
+              step: "credentials",
+              email,
+              error: {
+                code: "AUTH_UNAVAILABLE",
+                message: "El servicio de identidad no devolvió un token de sesión.",
+              },
+            };
+          }
+          return { step: "authenticated", email, session };
+        }
 
         if (!response?.mfa_required) {
           return {

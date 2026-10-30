@@ -32,6 +32,10 @@ const (
 var (
 	ErrInvalidChallengeToken = errors.New("invalid or expired MFA challenge token")
 	ErrForbiddenRole         = errors.New("actor role is not authorized for this identity operation")
+	// ErrMFADisabled is returned by the MFA verification endpoint when the
+	// service runs without the MFA requirement (wi-18 S1). There is no code to
+	// verify, so the endpoint refuses instead of pretending to validate one.
+	ErrMFADisabled = errors.New("multi-factor authentication is disabled on this deployment")
 )
 
 type defaultClock struct{}
@@ -44,6 +48,13 @@ type AuthService struct {
 	clock        Clock
 	jwtSecret    []byte
 	idleSessions IdleSessionRegistrar
+	// mfaRequired is the RNF-05 requirement of the deployment. It is enabled by
+	// default; the development stack turns it off through MFA_REQUIRED=false so
+	// that switching between the 5 seeded roles does not need a TOTP code
+	// (wi-18 S1). Disabling it never weakens the password check, and the
+	// session it issues is indistinguishable from a verified one for the rest
+	// of the system.
+	mfaRequired bool
 }
 
 // NewAuthService builds the identity service.
@@ -51,12 +62,16 @@ type AuthService struct {
 // `idleSessions` registers the idle-session marker of every new session in the
 // shared session store; when it is nil the service keeps working without the
 // shared store (local development without Redis).
+//
+// `mfaRequired` enables the RNF-05 second factor. Pass true everywhere except
+// in the development stack.
 func NewAuthService(
 	repo UserRepository,
 	audit auditapp.Recorder,
 	clock Clock,
 	jwtSecret string,
 	idleSessions IdleSessionRegistrar,
+	mfaRequired bool,
 ) *AuthService {
 	if clock == nil {
 		clock = defaultClock{}
@@ -70,6 +85,7 @@ func NewAuthService(
 		clock:        clock,
 		jwtSecret:    []byte(jwtSecret),
 		idleSessions: idleSessions,
+		mfaRequired:  mfaRequired,
 	}
 }
 
@@ -98,6 +114,25 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 		return nil, domain.ErrInvalidCredentials
 	}
 
+	if !s.mfaRequired {
+		// Development mode (wi-18 S1): the password alone opens the session, so
+		// switching between the seeded roles does not need a TOTP code. The
+		// session is issued through the very same path as a verified one.
+		user.ResetFailedAttempts(now)
+		_ = s.repo.UpdateUser(ctx, user)
+		session, err := s.issueSession(ctx, user, now, input.SourceIP)
+		if err != nil {
+			return nil, err
+		}
+		return &LoginOutput{
+			MFARequired:        false,
+			AccessToken:        session.AccessToken,
+			SessionID:          session.SessionID,
+			User:               &session.User,
+			IdleTimeoutSeconds: session.IdleTimeoutSeconds,
+		}, nil
+	}
+
 	token, err := s.signJWT(map[string]any{
 		"sub":          user.ID,
 		"email":        user.Email,
@@ -117,7 +152,66 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 	}, nil
 }
 
+// issueSession creates the session, registers its idle marker and signs the
+// access token.
+//
+// It is the single place where a session comes to life, so a session opened
+// without the MFA challenge (development mode) is identical in every respect
+// to a verified one: same signature, same idle marker in the shared store,
+// same immutable audit trail.
+func (s *AuthService) issueSession(ctx context.Context, user *domain.User, now time.Time, sourceIP string) (*VerifyMFAOutput, error) {
+	sessionID := newUUID()
+	sess := domain.NewSession(sessionID, user.ID, user.Role, true, sourceIP, now)
+	if err := s.repo.SaveSession(ctx, sess); err != nil {
+		return nil, err
+	}
+
+	// The gateway enforces the 15-minute idle timeout with the shared session
+	// marker (RNF-05). Without it every authenticated request would be
+	// rejected as an expired session.
+	if s.idleSessions != nil {
+		if err := s.idleSessions.RegisterIdleSession(ctx, sessionID, domain.IdleTimeoutSeconds*time.Second); err != nil {
+			return nil, err
+		}
+	}
+
+	accessToken, err := s.signJWT(map[string]any{
+		"sub":          user.ID,
+		"sid":          sessionID,
+		"email":        user.Email,
+		"role":         string(user.Role),
+		"mfa_verified": true,
+		"exp":          sess.ExpiresAt.Unix(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.recordAudit(ctx, ActorMeta{
+		ActorID:     user.ID,
+		ActorRole:   string(user.Role),
+		MFAVerified: true,
+		SourceIP:    sourceIP,
+	}, auditdom.ActionCreate, "USER_SESSION", sessionID, map[string]string{"mfa_verified": "true"})
+
+	return &VerifyMFAOutput{
+		AccessToken: accessToken,
+		SessionID:   sessionID,
+		User: AuthenticatedUserDTO{
+			ID:          user.ID,
+			Email:       user.Email,
+			FullName:    user.FullName,
+			Role:        user.Role,
+			MFAVerified: true,
+		},
+		IdleTimeoutSeconds: domain.IdleTimeoutSeconds,
+	}, nil
+}
+
 func (s *AuthService) VerifyMFA(ctx context.Context, input VerifyMFAInput) (*VerifyMFAOutput, error) {
+	if !s.mfaRequired {
+		return nil, ErrMFADisabled
+	}
 	claims, err := s.verifyJWT(input.ChallengeToken)
 	if err != nil {
 		return nil, ErrInvalidChallengeToken
@@ -154,52 +248,7 @@ func (s *AuthService) VerifyMFA(ctx context.Context, input VerifyMFAInput) (*Ver
 	user.ResetFailedAttempts(now)
 	_ = s.repo.UpdateUser(ctx, user)
 
-	sessionID := newUUID()
-	sess := domain.NewSession(sessionID, user.ID, user.Role, true, input.SourceIP, now)
-	if err := s.repo.SaveSession(ctx, sess); err != nil {
-		return nil, err
-	}
-
-	// The gateway enforces the 15-minute idle timeout with the shared session
-	// marker (RNF-05). Without it every authenticated request would be
-	// rejected as an expired session.
-	if s.idleSessions != nil {
-		if err := s.idleSessions.RegisterIdleSession(ctx, sessionID, domain.IdleTimeoutSeconds*time.Second); err != nil {
-			return nil, err
-		}
-	}
-
-	accessToken, err := s.signJWT(map[string]any{
-		"sub":          user.ID,
-		"sid":          sessionID,
-		"email":        user.Email,
-		"role":         string(user.Role),
-		"mfa_verified": true,
-		"exp":          sess.ExpiresAt.Unix(),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	s.recordAudit(ctx, ActorMeta{
-		ActorID:     user.ID,
-		ActorRole:   string(user.Role),
-		MFAVerified: true,
-		SourceIP:    input.SourceIP,
-	}, auditdom.ActionCreate, "USER_SESSION", sessionID, map[string]string{"mfa_verified": "true"})
-
-	return &VerifyMFAOutput{
-		AccessToken: accessToken,
-		SessionID:   sessionID,
-		User: AuthenticatedUserDTO{
-			ID:          user.ID,
-			Email:       user.Email,
-			FullName:    user.FullName,
-			Role:        user.Role,
-			MFAVerified: true,
-		},
-		IdleTimeoutSeconds: domain.IdleTimeoutSeconds,
-	}, nil
+	return s.issueSession(ctx, user, now, input.SourceIP)
 }
 
 func (s *AuthService) ValidateAndTouchSession(ctx context.Context, sessionID string) (*domain.Session, error) {

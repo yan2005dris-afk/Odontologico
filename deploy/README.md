@@ -75,6 +75,42 @@ El login es de **dos pasos** (`RNF-05`): credenciales → desafío MFA → sesi�
 El portal en `http://localhost:3000/login` pide primero el correo y la
 contraseña, y después el código TOTP de 6 dígitos.
 
+### Modo desarrollo: sin MFA y con acceso rápido por rol
+
+El stack local **desactiva el segundo factor** (`MFA_REQUIRED=false`) y **habilita
+el selector de rol** en la pantalla de login. Con el MFA apagado, el paso 1 ya
+devuelve la sesión completa y el paso 2 no existe:
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"recepcion@sigo-dental.com","password":"ReceptionPass#2026"}'
+# → {"mfa_required":false,"access_token":"…","session_id":"…","user":{…},"idle_timeout_seconds":900}
+```
+
+En el portal, `http://localhost:3000/login` muestra un panel **«Modo
+desarrollo»** con un botón por rol: lo pulsás y entras con esa cuenta, sin
+calcular ningún TOTP.
+
+| Interruptor | Dónde | Default | Efecto |
+| :--- | :--- | :--- | :--- |
+| `MFA_REQUIRED` | `clinical-agenda` | `true` en el código, `false` en el stack local | `false` = la contraseña abre la sesión; `POST /api/v1/auth/mfa/verify` responde `409 MFA_DISABLED` |
+| `NEXT_PUBLIC_DEV_ROLE_LOGIN` | build del `frontend` | `false` en el código, `true` en el stack local | muestra el selector de rol en el login |
+| `SIGO_SEED_DEMO_DATA` | `clinical-agenda` y `billing-stock` | `false` en el código, `true` en el stack local | siembra el juego de datos de demostración |
+
+> **Antes de publicar:** poner `MFA_REQUIRED=true` y
+> `NEXT_PUBLIC_DEV_ROLE_LOGIN=false`. El selector de rol **incluye las
+> contraseñas en el bundle del navegador**, y `NEXT_PUBLIC_*` se inlinea al
+> compilar: si se construye la imagen con la variable en `true`, las
+> credenciales quedan en el bundle para siempre, aunque luego se apague en el
+> runtime.
+
+Con el MFA apagado **la contraseña sigue siendo obligatoria** y la sesión que
+se emite es indistinguible de una verificada: mismo token, mismo marcador idle
+en Redis, misma traza `RNF-06`. Lo que cambia es que no hay segundo factor
+que comprobar, no que el borde afloje: el gateway sigue exigiendo
+`mfa_verified=true` en las rutas clínicas y financieras.
+
 ## Usuarios de desarrollo (5 roles canónicos)
 
 `clinical-agenda` siembra en cada arranque los 5 roles RBAC canónicos de

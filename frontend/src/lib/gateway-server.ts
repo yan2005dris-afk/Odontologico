@@ -150,22 +150,33 @@ export interface WireAppointment {
   notes?: string;
 }
 
+export interface AuthenticatedUserWire {
+  id?: string;
+  email?: string;
+  full_name?: string;
+  role?: string;
+  mfa_verified?: boolean;
+}
+
 export interface LoginWireResponse {
   mfa_required?: boolean;
   challenge_token?: string;
   expires_in_seconds?: number;
+  /**
+   * Populated only when the deployment runs without the MFA requirement
+   * (wi-18 S1, development mode): the identity service opens the session
+   * straight after the password check, so there is no TOTP step.
+   */
+  access_token?: string;
+  session_id?: string;
+  user?: AuthenticatedUserWire;
+  idle_timeout_seconds?: number;
 }
 
 export interface VerifyMfaWireResponse {
   access_token?: string;
   session_id?: string;
-  user?: {
-    id?: string;
-    email?: string;
-    full_name?: string;
-    role?: string;
-    mfa_verified?: boolean;
-  };
+  user?: AuthenticatedUserWire;
   idle_timeout_seconds?: number;
 }
 

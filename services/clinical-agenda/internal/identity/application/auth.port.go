@@ -74,6 +74,14 @@ type LoginOutput struct {
 	MFARequired    bool   `json:"mfa_required"`
 	ChallengeToken string `json:"challenge_token"`
 	ExpiresInSec   int    `json:"expires_in_seconds"`
+	// AccessToken, SessionID, User and IdleTimeoutSeconds are only populated
+	// when the service runs with the MFA requirement disabled (development
+	// mode, wi-18 S1). With MFA enabled the login only returns the challenge
+	// and the session comes from VerifyMFA.
+	AccessToken        string               `json:"access_token,omitempty"`
+	SessionID          string               `json:"session_id,omitempty"`
+	User               *AuthenticatedUserDTO `json:"user,omitempty"`
+	IdleTimeoutSeconds int                  `json:"idle_timeout_seconds,omitempty"`
 }
 
 type VerifyMFAInput struct {

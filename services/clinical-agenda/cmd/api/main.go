@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,31 @@ import (
 	treatmentpg "github.com/sigo-dental/clinical-agenda/internal/treatments/adapters/postgres"
 	treatmentapp "github.com/sigo-dental/clinical-agenda/internal/treatments/application"
 )
+
+// mfaRequired reports whether the deployment demands the RNF-05 second factor.
+//
+// The default is TRUE: the requirement can only be turned off explicitly, with
+// MFA_REQUIRED=false, and the development stack in deploy/compose.yaml is the
+// only place that does it.
+func mfaRequired() bool {
+	return envBool("MFA_REQUIRED", true)
+}
+
+// envBool reads a boolean environment variable. An unset or unparseable value
+// falls back to the given default, so the secure default can never be lost to
+// a typo in the deployment (wi-18 S0).
+func envBool(name string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Printf("clinical-agenda: invalid boolean for %s=%q, using %v", name, raw, fallback)
+		return fallback
+	}
+	return parsed
+}
 
 // idleSessionRegistrar returns the adapter that publishes the idle-session
 // marker of a new session in the shared session store (Redis). The edge
@@ -161,7 +187,7 @@ func buildMux() *http.ServeMux {
 	if err := seedCanonicalUsers(context.Background(), userRepo, time.Now().UTC()); err != nil {
 		log.Printf("could not seed the canonical RBAC accounts: %v", err)
 	}
-	authSvc := identityapp.NewAuthService(userRepo, auditSvc, nil, os.Getenv("JWT_SECRET"), idleSessionRegistrar())
+	authSvc := identityapp.NewAuthService(userRepo, auditSvc, nil, os.Getenv("JWT_SECRET"), idleSessionRegistrar(), mfaRequired())
 	authHandler := identityhttp.NewAuthHandler(authSvc)
 	authHandler.RegisterRoutes(mux)
 

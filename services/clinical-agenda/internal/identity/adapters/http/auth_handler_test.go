@@ -32,7 +32,7 @@ func (s *stepClock) Now() time.Time { return s.now }
 func TestAuthHandler_EndToEndFlow(t *testing.T) {
 	repo := postgres.NewUserRepository()
 	clock := &stepClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
-	svc := application.NewAuthService(repo, nil, clock, "test-jwt-secret", nil)
+	svc := application.NewAuthService(repo, nil, clock, "test-jwt-secret", nil, true)
 
 	secret := "JBSWY3DPEHPK3PXP"
 	user, _ := domain.NewUser("u-1", "dra.gomez@sigo-dental.com", "Dra. Valeria Gómez", domain.RoleDentist, "ClinicalPass#2026", secret, clock.Now())
@@ -171,7 +171,7 @@ func TestAuthHandler_ListUsers(t *testing.T) {
 	auditRepo := auditpg.NewAuditRepository()
 	clock := &stepClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
 	auditSvc := auditapp.NewAuditService(auditRepo, clock, nil)
-	svc := application.NewAuthService(repo, auditSvc, clock, "test-jwt-secret", nil)
+	svc := application.NewAuthService(repo, auditSvc, clock, "test-jwt-secret", nil, true)
 
 	seeded := []*domain.User{
 		{ID: "u-admin", Email: "admin@sigo-dental.com", FullName: "Andrés Vega Salinas", Role: domain.RoleAdmin, Active: true, MFASecretEncrypted: "GEZDGNBVGY3TQOJQ", CreatedAt: clock.now.Add(4 * time.Hour)},
@@ -333,7 +333,7 @@ func (failingRecorder) Record(context.Context, auditapp.RecordInput) (*auditdom.
 func TestAuthHandler_ListUsersSurvivesAuditFailure(t *testing.T) {
 	repo := postgres.NewUserRepository()
 	clock := &stepClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
-	svc := application.NewAuthService(repo, failingRecorder{}, clock, "test-jwt-secret", nil)
+	svc := application.NewAuthService(repo, failingRecorder{}, clock, "test-jwt-secret", nil, true)
 
 	handler := identityhttp.NewAuthHandler(svc)
 	mux := http.NewServeMux()

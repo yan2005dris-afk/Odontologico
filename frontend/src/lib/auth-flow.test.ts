@@ -170,3 +170,59 @@ describe("wi-13 S3 — login & MFA authentication state machine (RNF-05)", () =>
     assert.doesNotMatch(JSON.stringify(state), /654321/);
   });
 });
+
+describe("wi-18 S2 — login without the MFA step (development mode)", () => {
+  it("opens the session straight away when the identity service issues one", async () => {
+    const flow = createAuthFlow({
+      async login() {
+        return {
+          mfa_required: false,
+          access_token: "jwt-token-dev",
+          session_id: "sess-dev",
+          user: {
+            id: "usr-1",
+            email: "recepcion@sigo-dental.com",
+            full_name: "Lucía Fernández Ruiz",
+            role: "receptionist",
+            mfa_verified: true,
+          },
+          idle_timeout_seconds: 900,
+        } as never;
+      },
+      async verifyMfa() {
+        throw new Error("the MFA step must not be reached");
+      },
+    });
+
+    const state = await flow.submitCredentials({ step: "credentials" }, {
+      email: "recepcion@sigo-dental.com",
+      password: "ReceptionPass#2026",
+    });
+
+    assert.equal(state.step, "authenticated");
+    assert.equal(state.session?.accessToken, "jwt-token-dev");
+    assert.equal(state.session?.role, "receptionist");
+    assert.equal(state.session?.userName, "Lucía Fernández Ruiz");
+    assert.equal(state.session?.idleTimeoutMs, 900_000);
+    assert.equal(state.challengeToken, undefined);
+  });
+
+  it("keeps demanding the MFA challenge when the service asks for one", async () => {
+    const flow = createAuthFlow({
+      async login() {
+        return { mfa_required: true, challenge_token: "challenge-abc" } as never;
+      },
+      async verifyMfa() {
+        throw new Error("not reached");
+      },
+    });
+
+    const state = await flow.submitCredentials({ step: "credentials" }, {
+      email: "dra.gomez@sigo-dental.com",
+      password: "ClinicalPass#2026",
+    });
+
+    assert.equal(state.step, "mfa");
+    assert.equal(state.challengeToken, "challenge-abc");
+  });
+});

@@ -42,8 +42,8 @@ func TestAuthService_LoginMFAAndIdleTimeout(t *testing.T) {
 	clock := &manualClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
 	auditSvc := auditapp.NewAuditService(auditRepo, clock, nil)
 	idleSessions := &recordingIdleSessions{}
-	authSvc := application.NewAuthService(userRepo, auditSvc, clock, "test-secret-2026", idleSessions)
-	_ = application.NewAuthService(userRepo, nil, nil, "", nil)
+	authSvc := application.NewAuthService(userRepo, auditSvc, clock, "test-secret-2026", idleSessions, true)
+	_ = application.NewAuthService(userRepo, nil, nil, "", nil, true)
 
 	secret := "JBSWY3DPEHPK3PXP"
 	user, err := domain.NewUser("c9b1d7a0-1234-4a5b-8c9d-0e1f2a3b4c5d", "dra.gomez@sigo-dental.com", "Dra. Valeria Gómez", domain.RoleDentist, "ClinicalPass#2026", secret, clock.Now())
@@ -168,4 +168,63 @@ func TestAuthService_LoginMFAAndIdleTimeout(t *testing.T) {
 	// Logout
 	_ = authSvc.Logout(context.Background(), mfaOut.SessionID)
 	_ = authSvc.Logout(context.Background(), "non-existent")
+}
+
+// wi-18 S1: with the MFA requirement disabled the password alone opens the
+// session, and the session is indistinguishable from a verified one.
+func TestAuthService_LoginWithoutMFAOpensSessionDirectly(t *testing.T) {
+	userRepo := postgres.NewUserRepository()
+	auditRepo := auditpg.NewAuditRepository()
+	clock := &manualClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
+	auditSvc := auditapp.NewAuditService(auditRepo, clock, nil)
+	idleSessions := &recordingIdleSessions{}
+	authSvc := application.NewAuthService(userRepo, auditSvc, clock, "test-secret-2026", idleSessions, false)
+
+	user, err := domain.NewUser("c9b1d7a0-1234-4a5b-8c9d-0e1f2a3b4c5d", "dra.gomez@sigo-dental.com", "Dra. Valeria Gómez", domain.RoleDentist, "ClinicalPass#2026", "JBSWY3DPEHPK3PXP", clock.Now())
+	if err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+	_ = userRepo.CreateUser(context.Background(), user)
+
+	out, err := authSvc.Login(context.Background(), application.LoginInput{
+		Email:    "dra.gomez@sigo-dental.com",
+		Password: "ClinicalPass#2026",
+		SourceIP: "192.168.10.24",
+	})
+	if err != nil {
+		t.Fatalf("expected the login to succeed without MFA, got %v", err)
+	}
+	if out.MFARequired {
+		t.Fatalf("expected mfa_required=false")
+	}
+	if out.AccessToken == "" || out.SessionID == "" {
+		t.Fatalf("expected a session to be issued directly, got %+v", out)
+	}
+	if out.User == nil || out.User.Role != domain.RoleDentist || out.User.Email != "dra.gomez@sigo-dental.com" {
+		t.Fatalf("expected the dentist identity in the session, got %+v", out.User)
+	}
+	if out.IdleTimeoutSeconds != domain.IdleTimeoutSeconds {
+		t.Fatalf("expected the 15-minute idle timeout, got %d", out.IdleTimeoutSeconds)
+	}
+	// The idle marker is published exactly as in the verified flow (RNF-05).
+	if len(idleSessions.calls) != 1 || idleSessions.calls[0].sessionID != out.SessionID {
+		t.Fatalf("expected the idle marker of the new session, got %+v", idleSessions.calls)
+	}
+
+	// The password is still required.
+	if _, err := authSvc.Login(context.Background(), application.LoginInput{
+		Email:    "dra.gomez@sigo-dental.com",
+		Password: "WrongPassword#1",
+	}); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("expected ErrInvalidCredentials with a wrong password, got %v", err)
+	}
+
+	// There is no code to verify: the MFA endpoint refuses instead of
+	// pretending to validate one.
+	if _, err := authSvc.VerifyMFA(context.Background(), application.VerifyMFAInput{
+		ChallengeToken: "whatever",
+		TOTPCode:       "123456",
+	}); !errors.Is(err, application.ErrMFADisabled) {
+		t.Fatalf("expected ErrMFADisabled, got %v", err)
+	}
 }

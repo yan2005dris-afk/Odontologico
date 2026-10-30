@@ -95,6 +95,8 @@ func (h *AuthHandler) handleVerifyMFA(w http.ResponseWriter, r *http.Request) {
 	out, err := h.service.VerifyMFA(r.Context(), req)
 	if err != nil {
 		switch {
+		case errors.Is(err, application.ErrMFADisabled):
+			writeError(w, http.StatusConflict, "MFA_DISABLED", err.Error())
 		case errors.Is(err, domain.ErrAccountLocked):
 			writeError(w, http.StatusLocked, "ACCOUNT_LOCKED", err.Error())
 		case errors.Is(err, domain.ErrInvalidMFACode), errors.Is(err, application.ErrInvalidChallengeToken):

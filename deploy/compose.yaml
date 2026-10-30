@@ -75,6 +75,12 @@ services:
       S3_ENDPOINT: http://rustfs:9000
       JWT_SECRET: ${JWT_SECRET:-sigo-dental-production-hs256-secret-key-2026}
       SESSION_IDLE_TTL_SECONDS: "900"
+      # RNF-05 second factor. The development stack turns it OFF so that
+      # switching between the 5 seeded roles does not need a TOTP code
+      # (wi-18 S1). Set it back to "true" outside local development.
+      MFA_REQUIRED: ${MFA_REQUIRED:-false}
+      # Seeds the demonstration data set on boot (wi-18 S4).
+      SIGO_SEED_DEMO_DATA: ${SIGO_SEED_DEMO_DATA:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +106,8 @@ services:
       PORT: "8082"
       DATABASE_URL: postgres://${POSTGRES_USER:-sigo_admin}:${POSTGRES_PASSWORD:-change_me_postgres_256}@postgres:5432/${POSTGRES_DB:-sigo_dental}?sslmode=disable
       REDIS_ADDR: redis:6379
+      # Seeds the demonstration data set on boot (wi-18 S5).
+      SIGO_SEED_DEMO_DATA: ${SIGO_SEED_DEMO_DATA:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,6 +172,10 @@ services:
         # Next (same-origin), so this value is kept for legacy compatibility.
         NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:8080}
         NEXT_PUBLIC_IDLE_TIMEOUT_MS: "900000"
+        # Renders the development role picker on the login screen (wi-18 S3).
+        # It ships the seeded credentials in the browser bundle: never enable it
+        # in a published build.
+        NEXT_PUBLIC_DEV_ROLE_LOGIN: ${NEXT_PUBLIC_DEV_ROLE_LOGIN:-true}
     container_name: sigo-dental-frontend
     restart: unless-stopped
     ports:

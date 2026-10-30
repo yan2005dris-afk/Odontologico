@@ -30,7 +30,9 @@ export default async function LoginPage({
         <header>
           <h1 className="text-lg font-bold text-slate-900">Ingreso Clínico — SIGO-Dental</h1>
           <p className="text-xs text-slate-600">
-            Autenticación segura con verificación MFA TOTP (RNF-05)
+            {devMode
+              ? "Autenticación con verificación MFA TOTP (RNF-05) — desactivada en este entorno"
+              : "Autenticación segura con verificación MFA TOTP (RNF-05)"}
           </p>
         </header>
 

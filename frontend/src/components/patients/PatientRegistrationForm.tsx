@@ -10,8 +10,12 @@ import {
 
 export interface PatientRegistrationValidationResult {
   valid: boolean;
+  /** Age in years; meaningful only when `ageKnown` is true. */
   age: number;
+  /** True only when the age could be computed AND the patient is under 18. */
   isMinor: boolean;
+  /** False when the birth date is missing or malformed, i.e. the age is unknown. */
+  ageKnown: boolean;
   errorCode?: "INVALID_PATIENT_FIELDS" | "LEGAL_GUARDIAN_REQUIRED_FOR_MINOR";
   fieldErrors: Record<string, string>;
 }
@@ -34,6 +38,51 @@ export function calculatePatientAge(birthDateIso: string, referenceDateIso = "20
   return age;
 }
 
+/**
+ * True when the birth date is a well-formed YYYY-MM-DD value, i.e. when the
+ * age can actually be computed.
+ *
+ * A missing or malformed birth date means "unknown age", never "0 years".
+ * Treating an empty date as age 0 made every untouched intake draft look like
+ * a minor and raised a false LEGAL_GUARDIAN_REQUIRED_FOR_MINOR on page load
+ * (defect 14).
+ */
+export function hasCompleteBirthDate(birthDateIso: string): boolean {
+  const trimmed = birthDateIso.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return false;
+  }
+  const [year, month, day] = trimmed.split("-").map(Number);
+  return year > 0 && month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
+/**
+ * True while the intake form is still untouched: the user has not entered any
+ * identifying data yet.
+ *
+ * A pristine draft must not report validation errors — the missing fields are
+ * expected at that point and the age is still unknown. The real validation
+ * happens on submit, in the clinical service, and its error reaches the
+ * portal through the `?error=` query parameter.
+ */
+export function isPristinePatientDraft(input: CreatePatientInput): boolean {
+  const values = [
+    input.fullName,
+    input.documentNumber,
+    input.birthDate,
+    input.phone,
+    input.email ?? "",
+    input.emergencyContact?.fullName ?? "",
+    input.emergencyContact?.phone ?? "",
+    input.emergencyContact?.relationship ?? "",
+    input.legalGuardian?.fullName ?? "",
+    input.legalGuardian?.documentNumber ?? "",
+    input.legalGuardian?.phone ?? "",
+    input.legalGuardian?.relationship ?? "",
+  ];
+  return values.every((value) => value.trim() === "");
+}
+
 export function validatePatientRegistration(
   input: CreatePatientInput,
   referenceDateIso = "2026-10-30"
@@ -53,8 +102,9 @@ export function validatePatientRegistration(
     fieldErrors.phone = "Teléfono de contacto obligatorio";
   }
 
-  const age = calculatePatientAge(input.birthDate, referenceDateIso);
-  const isMinor = age < 18;
+  const ageKnown = hasCompleteBirthDate(input.birthDate);
+  const age = ageKnown ? calculatePatientAge(input.birthDate, referenceDateIso) : 0;
+  const isMinor = ageKnown && age < 18;
 
   if (isMinor) {
     const guardian = input.legalGuardian;
@@ -81,6 +131,7 @@ export function validatePatientRegistration(
         valid: false,
         age,
         isMinor: true,
+        ageKnown,
         errorCode: "LEGAL_GUARDIAN_REQUIRED_FOR_MINOR",
         fieldErrors,
       };
@@ -92,6 +143,7 @@ export function validatePatientRegistration(
       valid: false,
       age,
       isMinor,
+      ageKnown,
       errorCode: "INVALID_PATIENT_FIELDS",
       fieldErrors,
     };
@@ -101,6 +153,7 @@ export function validatePatientRegistration(
     valid: true,
     age,
     isMinor,
+    ageKnown,
     fieldErrors: {},
   };
 }
@@ -146,6 +199,9 @@ export function renderPatientRegistrationFormHtml(
   // A submittable form is validated by the clinical service, so the guardian
   // block is always visible and the submit button is never disabled.
   const isSubmittable = typeof options?.formAction === "string" && options.formAction !== "";
+  // An untouched draft has no expected errors and an unknown age: reporting
+  // them before the user types anything is a false positive (defect 14).
+  const isPristine = isPristinePatientDraft(input);
   const showGuardianSection = validation.isMinor || isSubmittable;
   const guardianRequired = validation.isMinor && !isSubmittable;
 
@@ -160,9 +216,12 @@ export function renderPatientRegistrationFormHtml(
   }).join("");
 
   const guardianRequiredAttr = guardianRequired ? "required" : "";
+  const guardianLegendHtml = validation.isMinor
+    ? "Tutor Legal Obligatorio (Paciente menor de 18 años — RF-01)"
+    : "Tutor Legal Obligatorio (obligatorio si el paciente es menor de 18 años — RF-01)";
   const guardianSectionHtml = showGuardianSection
     ? `<fieldset class="p-4 rounded-lg border border-amber-300 bg-amber-50/50 space-y-3" data-testid="legal-guardian-section">
-        <legend class="text-sm font-semibold text-amber-950 px-1">Tutor Legal Obligatorio (Paciente menor de 18 años — RF-01)</legend>
+        <legend class="text-sm font-semibold text-amber-950 px-1">${guardianLegendHtml}</legend>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-slate-700" for="guardianFullName">Nombre del Tutor Legal *</label>
@@ -202,7 +261,7 @@ export function renderPatientRegistrationFormHtml(
         </div>
       </fieldset>`;
 
-  const errorBannerHtml = !validation.valid
+  const errorBannerHtml = !validation.valid && !isPristine
     ? `<div role="alert" class="p-3 rounded border border-red-300 bg-red-50 text-xs text-red-800 font-medium">
         Error de validación (${validation.errorCode}): complete todos los campos obligatorios.
       </div>`
@@ -216,11 +275,14 @@ export function renderPatientRegistrationFormHtml(
   ].join(" ");
 
   const submitDisabledAttr = !isSubmittable && !validation.valid ? "disabled" : "";
+  const ageSummaryHtml = validation.ageKnown
+    ? `${validation.age} años`
+    : "—";
 
   return `<form ${formAttributesHtml}>
     <div class="flex items-center justify-between border-b border-slate-200 pb-3">
       <h2 class="text-base font-bold text-slate-900">Ficha Única de Paciente (RF-01)</h2>
-      <span class="text-xs tabular-nums text-slate-600">Edad calculada: ${validation.age} años</span>
+      <span class="text-xs tabular-nums text-slate-600">Edad calculada: ${ageSummaryHtml}</span>
     </div>
     ${errorBannerHtml}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

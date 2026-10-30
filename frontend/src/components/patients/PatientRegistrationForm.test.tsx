@@ -4,6 +4,8 @@ import {
   calculatePatientAge,
   validatePatientRegistration,
   renderPatientRegistrationFormHtml,
+  hasCompleteBirthDate,
+  isPristinePatientDraft,
 } from "./PatientRegistrationForm.tsx";
 
 describe("wi-10 S2 — Unified Patient Registration & Minor Legal Guardian Validation (RF-01)", () => {
@@ -180,5 +182,113 @@ describe("wi-13 S6 — submittable patient registration form", () => {
     });
 
     assert.equal(/<button[^>]*\sdisabled(?:\s|>)/.test(html), false);
+  });
+});
+
+describe("defect 14 — no false LEGAL_GUARDIAN_REQUIRED_FOR_MINOR on an untouched intake form", () => {
+  const referenceDate = "2026-10-30";
+
+  /** Same draft the patients page renders (app/(portal)/patients/page.tsx EMPTY_DRAFT). */
+  const untouchedDraft = {
+    documentType: "DNI" as const,
+    documentNumber: "",
+    fullName: "",
+    birthDate: "",
+    phone: "",
+    email: "",
+    sex: "F" as const,
+    emergencyContact: { fullName: "", phone: "", relationship: "" },
+    legalGuardian: { fullName: "", documentNumber: "", phone: "", relationship: "" },
+    criticalAlerts: [],
+  };
+
+  it("renders no validation banner for an untouched draft", () => {
+    const html = renderPatientRegistrationFormHtml(untouchedDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.equal(html.includes("Error de validación"), false);
+    assert.equal(html.includes("LEGAL_GUARDIAN_REQUIRED_FOR_MINOR"), false);
+    assert.equal(html.includes('role="alert"'), false);
+  });
+
+  it("never reports an age of 0 years while the birth date is unknown", () => {
+    const html = renderPatientRegistrationFormHtml(untouchedDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.equal(html.includes("Edad calculada: 0 años"), false);
+    assert.match(html, /Edad calculada: —/);
+  });
+
+  it("does not assert that the patient is a minor while the age is unknown", () => {
+    const html = renderPatientRegistrationFormHtml(untouchedDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.equal(html.includes("Paciente menor de 18 años"), false);
+    assert.match(html, /Tutor Legal Obligatorio \(obligatorio si el paciente es menor de 18 años/);
+  });
+
+  it("treats a missing birth date as an unknown age, not as a 0-year-old minor", () => {
+    const result = validatePatientRegistration(untouchedDraft, referenceDate);
+
+    assert.equal(result.valid, false);
+    assert.equal(result.ageKnown, false);
+    assert.equal(result.isMinor, false);
+    assert.equal(result.errorCode, "INVALID_PATIENT_FIELDS");
+  });
+
+  it("detects a pristine draft only while no identifying data was entered", () => {
+    assert.equal(isPristinePatientDraft(untouchedDraft), true);
+    assert.equal(
+      isPristinePatientDraft({ ...untouchedDraft, fullName: "Ana Lucía Fernández" }),
+      false
+    );
+    assert.equal(
+      isPristinePatientDraft({ ...untouchedDraft, birthDate: "1990-04-12" }),
+      false
+    );
+    assert.equal(
+      isPristinePatientDraft({
+        ...untouchedDraft,
+        emergencyContact: { fullName: "Luis Fernández", phone: "+593999", relationship: "Padre" },
+      }),
+      false
+    );
+  });
+
+  it("still reports the legal guardian error for a real minor without a guardian", () => {
+    const minorDraft = {
+      ...untouchedDraft,
+      documentNumber: "52100999",
+      fullName: "Lucas Mateo Díaz",
+      birthDate: "2015-03-15",
+      phone: "+593991234567",
+      email: "familia@example.com",
+    };
+
+    const result = validatePatientRegistration(minorDraft, referenceDate);
+    assert.equal(result.ageKnown, true);
+    assert.equal(result.isMinor, true);
+    assert.equal(result.errorCode, "LEGAL_GUARDIAN_REQUIRED_FOR_MINOR");
+
+    const html = renderPatientRegistrationFormHtml(minorDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+    assert.match(html, /Error de validación \(LEGAL_GUARDIAN_REQUIRED_FOR_MINOR\)/);
+    assert.match(html, /Paciente menor de 18 años/);
+  });
+
+  it("only accepts complete YYYY-MM-DD birth dates as a computable age", () => {
+    assert.equal(hasCompleteBirthDate("2015-03-15"), true);
+    assert.equal(hasCompleteBirthDate(""), false);
+    assert.equal(hasCompleteBirthDate("2015-03"), false);
+    assert.equal(hasCompleteBirthDate("15/03/2015"), false);
+    assert.equal(hasCompleteBirthDate("2015-13-01"), false);
   });
 });

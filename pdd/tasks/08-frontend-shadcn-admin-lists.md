@@ -3,9 +3,12 @@
 - **Feature ID:** `08-frontend-shadcn-admin-lists`
 - **SRS References:** `SRS §3` (RBAC), `SRS §4.1..4.5` (`RF-01`..`RF-14`), `SRS §5` (`RNF-01`, `RNF-05`, `RNF-06`, `RNF-07`, `RNF-08`), `SRS §6` (`RN-01`, `RN-02`, `RN-03`), Interface Architecture (`AGENTS.md §3`)
 - **Inspiration / Architecture Reference:** [`satnaing/shadcn-admin`](https://github.com/satnaing/shadcn-admin) adapted to Next.js 15 App Router + React 19 + Tailwind CSS v4.
-- **Status:** `awaiting_plan_approval`
+- **Status:** `plan_pending_approval`
 - **Work Items:**
-  - [`wi-14-shadcn-admin-refactor`](../wi-14-shadcn-admin-refactor/plan.md) (`wt/frontend` + `wt/clinical-agenda` + `wt/billing-stock`)
+  - [`wi-14-shadcn-admin-foundation`](../wi-14-shadcn-admin-foundation/plan.md) (`wt/frontend`) — fundación `shadcn/ui`, App Shell, núcleo `DataTable`, tokens de diseño y arnés de tests con DOM.
+  - [`wi-15-read-contract-listings`](../wi-15-read-contract-listings/plan.md) (`wt/clinical-agenda` + `wt/billing-stock` + `wt/gateway`) — 11 endpoints `GET` de listado y corrección de ruteo, MFA y RBAC del gateway.
+  - [`wi-16-react-migration-bigbang`](../wi-16-react-migration-bigbang/plan.md) (`wt/frontend`) — borrado de los 14 renderers HTML, reescritura de las 12 suites de componente y pantallas clínicas de lista.
+  - [`wi-17-admin-finance-lists-and-invariants`](../wi-17-admin-finance-lists-and-invariants/plan.md) (`wt/frontend` + `wt/gateway`) — pantallas financieras y de administración, dashboard y verificación de invariantes `RN`/`RNF`.
 
 ---
 
@@ -27,6 +30,19 @@
    - **Inventario de Insumos y Recetas (`RF-14`):** `/inventory` solo muestra un cartel estático porque falta `GET /api/v1/inventory/items` y `GET /api/v1/inventory/recipes`.
    - **Auditoría Inmutable (`RNF-06`):** El backend YA TIENE `GET /api/v1/audit/logs` implementado en `clinical-agenda`, pero **no existe la pantalla `/audit` en el frontend**.
    - **Usuarios y Permisos (`SRS §3`, `RNF-05`):** No existe la pantalla `/users` para el rol `admin` ni `GET /api/v1/users` en `clinical-agenda`.
+
+### 1.2 Hallazgos adicionales verificados durante la planificación (2026-10-30)
+
+Verificados por lectura directa del código, no por documentación:
+
+1. **Ruteo roto en el gateway — `RF-08` inalcanzable.** `ResolveUpstream` enruta por el prefijo `/api/v1/treatments` (`services/api-gateway/internal/ingress/application/gateway.service.go:112`), pero `clinical-agenda` registra `/api/v1/treatment-plans` (`internal/treatments/adapters/http/treatment_handler.go:23-25`). `POST /api/v1/treatment-plans/{id}/approve`, `.../items/{itemId}/complete` y `DELETE .../items/{itemId}` caen en `UpstreamUnknown` y responden **404 `ROUTE_NOT_FOUND`** (`proxy_router.go:174-177`). La aprobación de presupuestos no existe de punta a punta.
+2. **MFA evadido en la misma ruta.** `RequiresMFA` cubre `/api/v1/treatments` (`internal/ingress/domain/rbac_policy.go:68`) pero no `/api/v1/treatment-plans`: corregir sólo el ruteo dejaría la aprobación de presupuestos fuera de la exigencia de MFA de `RNF-05`.
+3. **OpenAPI ficticio.** `defaultOpenAPIJSON` (`proxy_router.go:255-280`) publica rutas que ningún servicio expone (`/api/v1/clinical/odontograms`, `/api/v1/treatments/plans`, `/api/v1/settlements/commissions`, `/api/v1/inventory/supplies`) y omite las que sí existen. `buildOpenAPIJSONFromYAML` (`proxy_router.go:282-288`) ignora el YAML y devuelve siempre el default.
+4. **El inventario de renderers es mayor al estimado.** La sección 1.1 habla de 12 módulos; el código real tiene **14 archivos** que exponen **15 funciones `render*Html`**, y **5 puntos de `dangerouslySetInnerHTML`** (`patients/page.tsx:199,215`, `patients/[id]/page.tsx:177,232,266,298`, `agenda/page.tsx:294`).
+5. **`portal-views.ts` es puro modelado de datos.** No contiene ninguna cadena de HTML; sus 78 aserciones sobreviven intactas a la migración. La única fuga de presentación hacia la capa de datos es `renderCriticalAlertBadgesHtml` (`components/patients/StickyPatientHeader.tsx:64`), consumida en `patients/page.tsx:199`.
+6. **El arnés de tests actual no puede testear React.** Las 18 suites importan `describe`/`it` de `node:test` y corren bajo `node --import ./vitest.config.ts --test`; bajo Vitest real fallan con *"No test suite found"*. El `environment` es `node`, sin DOM (`vitest.config.ts:26-29`). La migración a `vitest run` + `jsdom` + Testing Library es requisito previo de cualquier work item que entregue componentes React.
+7. **No hay `pnpm-lock.yaml` en el repositorio.** Sin lockfile no hay build reproducible; además pnpm ≥ 12 aborta con `ERR_PNPM_IGNORED_BUILDS` salvo que se declaren los scripts de build permitidos (`esbuild`, `sharp`, `@tailwindcss/oxide`).
+8. **Los repositorios siguen siendo en memoria.** Los adaptadores `adapters/postgres/*` usan `map` + `sync.RWMutex` y sólo conservan constantes SQL de referencia (`internal/patients/adapters/postgres/patient_repository.go:20-26`). Los listados nuevos de `S2` se apoyan en esas mismas estructuras: el contrato HTTP queda completo, la persistencia real es otro work item.
 
 ---
 

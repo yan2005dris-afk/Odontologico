@@ -7,6 +7,7 @@
  * pure view model of `portal-views.ts`.
  */
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { renderCriticalAlertBadgesHtml } from "../../../components/patients/StickyPatientHeader.tsx";
 import { renderPatientRegistrationFormHtml } from "../../../components/patients/PatientRegistrationForm.tsx";
@@ -139,12 +140,12 @@ export default async function PatientsPage({
             {model.error.message} ({model.error.code})
           </p>
           {model.error.retryable ? (
-            <a
+            <Link
               href="/patients"
               className="inline-block text-xs font-semibold text-red-900 underline"
             >
               Reintentar
-            </a>
+            </Link>
           ) : null}
         </section>
       ) : null}

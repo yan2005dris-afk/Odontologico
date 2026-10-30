@@ -6,7 +6,7 @@
  * browser, a running gateway or a Next.js runtime.
  */
 
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import {
   buildAgendaModel,

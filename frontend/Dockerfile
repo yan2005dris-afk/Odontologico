@@ -5,10 +5,18 @@ FROM node:22-alpine AS deps
 
 WORKDIR /app
 
-# No lockfile is committed, so npm resolves the semver ranges in package.json.
-# Once a lockfile lands, switch this to `npm ci` for reproducible builds.
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+# The portal is installed with pnpm and a frozen lockfile (wi-14 S1): the
+# image is reproducible and `pnpm install` cannot silently resolve a newer
+# version than the one the tests ran against.
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
+
+# `pnpm-workspace.yaml` carries the `allowBuilds` list that pnpm >= 12 needs to
+# run the postinstall of esbuild and sharp; without it the install aborts with
+# ERR_PNPM_IGNORED_BUILDS.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # ---------- build ----------
 FROM node:22-alpine AS builder
@@ -16,6 +24,9 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -28,7 +39,7 @@ ARG NEXT_PUBLIC_IDLE_TIMEOUT_MS=900000
 ENV NEXT_PUBLIC_API_GATEWAY_URL=${NEXT_PUBLIC_API_GATEWAY_URL}
 ENV NEXT_PUBLIC_IDLE_TIMEOUT_MS=${NEXT_PUBLIC_IDLE_TIMEOUT_MS}
 
-RUN npm run build
+RUN pnpm build
 
 # ---------- runtime ----------
 FROM node:22-alpine AS runner

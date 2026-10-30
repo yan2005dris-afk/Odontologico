@@ -1,0 +1,18 @@
+# Configuracion de pnpm >= 12 para el portal SIGO-Dental.
+#
+# pnpm 12 movio la lista `onlyBuiltDependencies` (que vivia en el campo "pnpm"
+# del package.json) al archivo pnpm-workspace.yaml, y la renombro al mapa
+# `allowBuilds`. Sin esta declaracion `pnpm install` aborta con
+# ERR_PNPM_IGNORED_BUILDS y no ejecuta los postinstall de esbuild/sharp,
+# que son los que dejan operativos el transformador de Vitest y el optimizador
+# de imagenes de Next.js.
+#
+# Referencia: `pnpm approve-builds --all --yes` escribe esta misma seccion.
+packages:
+  - "."
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+  "@tailwindcss/oxide": true
+  unrs-resolver: true

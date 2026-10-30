@@ -15,5 +15,6 @@ node_modules/
 !.env.example
 .pandorx/pandorx.db
 .pandorx/outputs/
+.perch/
 .worktrees/
 worktrees/

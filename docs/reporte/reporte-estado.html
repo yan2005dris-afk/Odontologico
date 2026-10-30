@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Informe de Avance — SIGO-Dental</title>
+<style>
+@page { size: A4; margin: 25mm 22mm 22mm 22mm; }
+body { font-family: "Liberation Serif","Times New Roman",serif; font-size: 11.5pt; line-height: 1.6; color:#1a1a1a; text-align: justify; }
+h1,h2,h3 { font-family: "Liberation Sans",Arial,sans-serif; color:#0b2e4f; text-align:left; }
+h2 { font-size: 14pt; border-bottom: 1.5px solid #0b2e4f; padding-bottom: 3px; margin-top: 28px; page-break-after: avoid; }
+p { margin: 0 0 10px; }
+table { width:100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 10.5pt; page-break-inside: avoid; text-align:left; }
+th { background:#0b2e4f; color:#fff; padding:6px 8px; font-family:"Liberation Sans",Arial,sans-serif; font-weight:600; }
+td { border-bottom: 1px solid #ccd5de; padding:6px 8px; vertical-align: top; }
+tr:nth-child(even) td { background:#f7f9fb; }
+td.n { text-align:right; font-variant-numeric: tabular-nums; }
+.cover { height: 240mm; display:flex; flex-direction:column; justify-content:center; page-break-after: always; text-align:left; }
+.cover .org { font-family:"Liberation Sans",Arial,sans-serif; letter-spacing: 3px; font-size: 10pt; color:#4a5f73; }
+.cover h1 { font-size: 26pt; margin: 14px 0 6px; }
+.cover .sub { font-size: 14pt; color:#4a5f73; margin-bottom: 40px; }
+.meta td { border:none; background:none !important; padding:3px 0; }
+.meta td:first-child { width: 45mm; font-weight:bold; color:#0b2e4f; }
+.kpis { display:flex; gap:12px; margin: 16px 0 20px; }
+.kpi { flex:1; border:1px solid #ccd5de; border-top:4px solid #0b2e4f; padding:12px; text-align:center; }
+.kpi .v { font-family:"Liberation Sans",Arial,sans-serif; font-size: 22pt; font-weight:bold; color:#0b2e4f; }
+.kpi .l { font-size: 9.5pt; color:#4a5f73; }
+.bar { height: 14px; background:#e3e9ef; margin: 6px 0 18px; }
+.bar div { height:100%; width:65%; background:#0b2e4f; }
+.box { border-left: 4px solid #0b2e4f; background:#f1f4f7; padding: 12px 16px; margin: 14px 0; }
+.note { font-size: 9.5pt; color:#555; font-style: italic; }
+</style></head><body>
+
+<div class="cover">
+  <div class="org">INFORME DE AVANCE</div>
+  <h1>Informe de Avance del Proyecto</h1>
+  <div class="sub">SIGO-Dental — Sistema Integral de Gestión Odontológica<br>y Expediente Clínico Digital</div>
+  <table class="meta">
+    <tr><td>Fecha de emisión</td><td>30 de octubre de 2026</td></tr>
+    <tr><td>Documento de referencia</td><td>Especificación de Requerimientos de Software (SRS) v1.0</td></tr>
+    <tr><td>Propósito</td><td>Informar el grado de avance del plan general, los recursos empleados y la planificación propuesta para la entrega de la actividad evaluativa</td></tr>
+  </table>
+</div>
+
+<h2>1. Introducción</h2>
+<p>El presente documento tiene como finalidad informar el estado general de avance del proyecto SIGO-Dental, un sistema orientado a la gestión clínica y administrativa de consultorios odontológicos. El informe no pretende detallar aspectos técnicos específicos de la implementación, sino ofrecer una visión global del progreso alcanzado respecto al plan total, los recursos invertidos durante la jornada de trabajo y una recomendación sobre los plazos necesarios para presentar la actividad evaluativa con la calidad esperada.</p>
+<p>La información aquí contenida se fundamenta en la revisión del plan de trabajo, de los requerimientos establecidos en la especificación del sistema y del resultado de las verificaciones realizadas sobre el producto desarrollado hasta la fecha.</p>
+
+<h2>2. Resumen del avance</h2>
+<p>A la fecha de emisión de este informe, el proyecto ha alcanzado un grado de cumplimiento aproximado del <b>65 % del plan total</b>. Este avance se obtuvo en una jornada de trabajo de aproximadamente <b>dos horas</b>, con un consumo estimado de <b>1,2 millones de tokens</b> de procesamiento.</p>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">65 %</div><div class="l">Plan total completado</div></div>
+  <div class="kpi"><div class="v">≈ 2 h</div><div class="l">Tiempo de trabajo</div></div>
+  <div class="kpi"><div class="v">≈ 1,2 M</div><div class="l">Tokens consumidos</div></div>
+</div>
+
+<p><b>Progreso general del plan</b></p>
+<div class="bar"><div></div></div>
+
+<p>Los componentes desarrollados superan satisfactoriamente las pruebas de verificación, lo que indica que el trabajo realizado constituye una base sólida sobre la cual continuar. El porcentaje restante corresponde principalmente a la incorporación de funcionalidades pendientes y a la integración final de los distintos módulos del sistema.</p>
+
+<h2>3. Alcance completado y pendiente</h2>
+<p>De manera general, el avance puede agruparse en las siguientes áreas:</p>
+<table>
+<tr><th>Área</th><th>Situación</th></tr>
+<tr><td>Gestión de pacientes y expediente clínico</td><td>Completada en su mayor parte</td></tr>
+<tr><td>Agenda y gestión de citas</td><td>Completada en su mayor parte</td></tr>
+<tr><td>Planes de tratamiento y presupuestos</td><td>Avanzada, con ajustes pendientes</td></tr>
+<tr><td>Facturación, liquidaciones e inventario</td><td>Lógica desarrollada; interfaz de usuario pendiente</td></tr>
+<tr><td>Integración final y pruebas de conjunto</td><td>Pendiente</td></tr>
+</table>
+<p>Las tareas restantes se encuentran identificadas y organizadas en etapas sucesivas, lo que permite estimar con razonable precisión el esfuerzo requerido para su conclusión.</p>
+
+<h2>4. Recursos empleados</h2>
+<p>Para la elaboración del avance descrito se emplearon los siguientes recursos:</p>
+<table>
+<tr><th>Recurso</th><th style="text-align:right">Valor estimado</th></tr>
+<tr><td>Tiempo total de trabajo</td><td class="n">≈ 2 horas</td></tr>
+<tr><td>Tokens totales consumidos</td><td class="n">≈ 1 200 000</td></tr>
+<tr><td>Porcentaje del plan completado</td><td class="n">≈ 65 %</td></tr>
+</table>
+<p>Considerando la relación entre el tiempo invertido y el avance obtenido, se estima que el 35 % restante requerirá un esfuerzo adicional significativo, en especial en las etapas de integración, revisión y pulido final, que habitualmente demandan mayor dedicación que las fases iniciales de desarrollo.</p>
+<p class="note">Las cifras de tiempo y consumo de tokens son estimaciones y no mediciones instrumentadas.</p>
+
+<h2>5. Consideraciones de planificación</h2>
+<p>Para la culminación satisfactoria del proyecto resulta necesario contemplar, además del trabajo técnico pendiente, la carga académica concurrente del equipo. Durante el mismo periodo se deben atender otras evaluaciones y exámenes, lo que reduce el tiempo efectivo disponible para el desarrollo.</p>
+<p>Asimismo, las etapas finales de un proyecto de software —integración de módulos, corrección de observaciones, verificación del funcionamiento completo y preparación de la presentación— requieren un margen de tiempo adecuado para garantizar un resultado de calidad y evitar entregas apresuradas o incompletas.</p>
+
+<h2>6. Recomendación</h2>
+<div class="box">
+<p>Se recomienda que la actividad correspondiente al examen sea <b>enviada con la debida anticipación, preferentemente el día lunes</b>. Esto permitiría disponer de <b>tres días de desarrollo</b> para completar el porcentaje restante del plan, aun considerando la atención simultánea de otros exámenes.</p>
+<p style="margin:0">Contar con este margen permitirá presentar una actividad completa, revisada y de calidad acorde a lo esperado, en lugar de una entrega parcial derivada de restricciones de tiempo.</p>
+</div>
+<p>Con la planificación propuesta, se prevé distribuir el trabajo restante de la siguiente manera:</p>
+<table>
+<tr><th>Jornada</th><th>Actividades previstas</th></tr>
+<tr><td>Día 1</td><td>Corrección de ajustes pendientes y desarrollo de las funcionalidades restantes</td></tr>
+<tr><td>Día 2</td><td>Desarrollo de interfaces pendientes e integración de los módulos del sistema</td></tr>
+<tr><td>Día 3</td><td>Pruebas de funcionamiento integral, revisión final y preparación de la entrega</td></tr>
+</table>
+
+<h2>7. Conclusión</h2>
+<p>El proyecto SIGO-Dental presenta un avance significativo, con aproximadamente dos terceras partes del plan total completadas en un tiempo reducido y con resultados verificados. No obstante, la fracción restante comprende las etapas de mayor complejidad de integración y revisión.</p>
+<p>En virtud de lo expuesto, y considerando la carga académica concurrente, se reitera la recomendación de enviar la actividad evaluativa el día lunes, a fin de contar con el tiempo suficiente para presentar un trabajo completo, coherente y de calidad.</p>
+</body></html>

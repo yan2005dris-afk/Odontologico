@@ -18,7 +18,7 @@ func TestBillingService_POSAndBlindCashClose_S1_S2_S3_S4(t *testing.T) {
 	repo := postgres.NewInMemoryBillingRepository()
 	taxClient := fiscal.NewTaxAuthorityClient()
 	gateway := fiscal.NewPaymentGatewayClient()
-	svc := application.NewBillingService(repo, taxClient, gateway)
+	svc := application.NewBillingService(repo, taxClient, gateway, nil)
 
 	recepActor := application.ActorContext{
 		ActorID:     "recep-01",
@@ -197,4 +197,3 @@ func TestBillingService_POSAndBlindCashClose_S1_S2_S3_S4(t *testing.T) {
 		t.Fatalf("expected auto-generated cash register ID, got err=%v", err)
 	}
 }
-

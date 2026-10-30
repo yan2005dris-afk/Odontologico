@@ -216,6 +216,49 @@ func (cr *CashRegister) ExecuteBlindClose(declaredCashCents int64, denominations
 	}, nil
 }
 
+// CashRegisterListItemView is the DTO of the cash register listing.
+//
+// RN-02: the theoretical cash total only exists once the register is CLOSED. While the
+// register is OPEN the field is absent from the JSON payload (not null, not zero), so
+// a receptionist can never read the theoretical total before submitting the count.
+type CashRegisterListItemView struct {
+	ID               string     `json:"id"`
+	ClinicID         string     `json:"clinic_id"`
+	OpenedAt         time.Time  `json:"opened_at"`
+	ClosedAt         *time.Time `json:"closed_at,omitempty"`
+	Status           string     `json:"status"`
+	DeclaredCents    *int64     `json:"declared_cents,omitempty"`
+	TheoreticalCents *int64     `json:"theoretical_cents,omitempty"`
+	DiscrepancyCents *int64     `json:"discrepancy_cents,omitempty"`
+}
+
+func (cr *CashRegister) ToListItemView() CashRegisterListItemView {
+	view := CashRegisterListItemView{
+		ID:       cr.ID,
+		ClinicID: cr.ClinicID,
+		OpenedAt: cr.OpenedAt,
+		Status:   cr.Status,
+	}
+	if cr.ClosedAt != nil {
+		closedAt := *cr.ClosedAt
+		view.ClosedAt = &closedAt
+	}
+	if cr.DeclaredCashCents != nil {
+		declared := *cr.DeclaredCashCents
+		view.DeclaredCents = &declared
+	}
+	if cr.DiscrepancyCents != nil {
+		discrepancy := *cr.DiscrepancyCents
+		view.DiscrepancyCents = &discrepancy
+	}
+	// RN-02: the theoretical total is only revealed for a CLOSED register.
+	if cr.Status == CashRegisterStatusClosed && cr.TheoreticalCashCents != nil {
+		theoretical := *cr.TheoreticalCashCents
+		view.TheoreticalCents = &theoretical
+	}
+	return view
+}
+
 func (cr *CashRegister) ToAuditReportView() (*CashRegisterAuditReportView, error) {
 	if cr.Status != CashRegisterStatusClosed || cr.TheoreticalCashCents == nil || cr.DeclaredCashCents == nil || cr.DiscrepancyCents == nil || cr.ClosedAt == nil {
 		return nil, ErrBlindCashCloseEnforced

@@ -6,14 +6,25 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"strings"
 
+	auditapp "github.com/sigo-dental/billing-stock/internal/audit/application"
+	auditdom "github.com/sigo-dental/billing-stock/internal/audit/domain"
 	"github.com/sigo-dental/billing-stock/internal/inventory/domain"
 )
 
 var (
 	ErrMFARequired   = errors.New("MFA_REQUIRED")
 	ErrForbiddenRole = errors.New("FORBIDDEN_ROLE")
+)
+
+const (
+	// DefaultListLimit is the page size used when the client does not request one.
+	DefaultListLimit = 50
+	// MaxListLimit is the hard ceiling of the page size (plan S3).
+	MaxListLimit = 200
 )
 
 type UpsertSupplyCommand struct {
@@ -42,11 +53,55 @@ type DeductProcedureCompletedCommand struct {
 }
 
 type InventoryService struct {
-	repo InventoryRepositoryPort
+	repo  InventoryRepositoryPort
+	audit auditapp.Recorder
 }
 
-func NewInventoryService(repo InventoryRepositoryPort) *InventoryService {
-	return &InventoryService{repo: repo}
+func NewInventoryService(repo InventoryRepositoryPort, audit auditapp.Recorder) *InventoryService {
+	return &InventoryService{repo: repo, audit: audit}
+}
+
+// NormalizePage applies the canonical pagination rules: limit defaults to 50, is capped
+// at 200 and offset never goes below zero.
+func NormalizePage(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+	if limit > MaxListLimit {
+		limit = MaxListLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+// requireListingActor checks the minimum identity a listing needs to leave an RNF-06
+// trail. Role authorization is resolved at the gateway (plan S4).
+func requireListingActor(actor ActorContext) error {
+	if strings.TrimSpace(actor.ActorID) == "" || strings.TrimSpace(actor.ActorRole) == "" {
+		return ErrForbiddenRole
+	}
+	return nil
+}
+
+// recordExportAudit appends the immutable RNF-06 trail of a bulk read. A failing
+// recorder never invalidates the listing: the error is only logged.
+func (s *InventoryService) recordExportAudit(ctx context.Context, actor ActorContext, resourceType, resourceID string, meta map[string]string) {
+	if s.audit == nil {
+		return
+	}
+	if _, err := s.audit.Record(ctx, auditapp.RecordInput{
+		ActorID:      actor.ActorID,
+		ActorRole:    actor.ActorRole,
+		Action:       auditdom.ActionExport,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		SourceIP:     actor.SourceIP,
+		Metadata:     meta,
+	}); err != nil {
+		log.Printf("billing-stock: audit trail write failed for %s export: %v", resourceType, err)
+	}
 }
 
 func newUUID() string {
@@ -139,4 +194,54 @@ func (s *InventoryService) DeductForCompletedProcedure(ctx context.Context, acto
 		cmd.ProcedureCode,
 		actor.ActorID,
 	)
+}
+
+// ListSupplies returns the supplies matching the filter together with the total amount
+// of records before pagination.
+func (s *InventoryService) ListSupplies(ctx context.Context, actor ActorContext, filter SupplyFilter) ([]domain.SupplyListItemView, int, error) {
+	if err := requireListingActor(actor); err != nil {
+		return nil, 0, err
+	}
+	filter.Limit, filter.Offset = NormalizePage(filter.Limit, filter.Offset)
+	supplies, total, err := s.repo.ListSupplies(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	items := make([]domain.SupplyListItemView, 0, len(supplies))
+	for idx := range supplies {
+		items = append(items, supplies[idx].ToListItemView())
+	}
+	s.recordExportAudit(ctx, actor, "SUPPLY", "supplies", map[string]string{
+		"total":     strconv.Itoa(total),
+		"limit":     strconv.Itoa(filter.Limit),
+		"offset":    strconv.Itoa(filter.Offset),
+		"clinic_id": filter.ClinicID,
+		"q":         filter.Query,
+		"low_stock": strconv.FormatBool(filter.LowStockOnly),
+	})
+	return items, total, nil
+}
+
+// ListRecipes returns the standard recipes matching the filter together with the total
+// amount of records before pagination.
+func (s *InventoryService) ListRecipes(ctx context.Context, actor ActorContext, filter RecipeFilter) ([]domain.RecipeListItemView, int, error) {
+	if err := requireListingActor(actor); err != nil {
+		return nil, 0, err
+	}
+	filter.Limit, filter.Offset = NormalizePage(filter.Limit, filter.Offset)
+	recipes, total, err := s.repo.ListRecipes(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	items := make([]domain.RecipeListItemView, 0, len(recipes))
+	for idx := range recipes {
+		items = append(items, recipes[idx].ToListItemView())
+	}
+	s.recordExportAudit(ctx, actor, "PROCEDURE_RECIPE", "procedure-recipes", map[string]string{
+		"total":          strconv.Itoa(total),
+		"limit":          strconv.Itoa(filter.Limit),
+		"offset":         strconv.Itoa(filter.Offset),
+		"procedure_code": filter.ProcedureCode,
+	})
+	return items, total, nil
 }

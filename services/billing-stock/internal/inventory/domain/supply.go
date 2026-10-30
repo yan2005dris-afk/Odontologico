@@ -67,3 +67,28 @@ func (s *Supply) Deduct(quantity int) (lineMaterialCostCents int64, lowStockAler
 	alert := s.CurrentStock <= s.MinStockQuantity
 	return cost, alert, nil
 }
+
+// SupplyListItemView is the DTO of the supply listing.
+type SupplyListItemView struct {
+	SKU          string `json:"sku"`
+	Name         string `json:"name"`
+	CurrentStock int    `json:"current_stock"`
+	MinStock     int    `json:"min_stock"`
+	ClinicID     string `json:"clinic_id"`
+	Unit         string `json:"unit"`
+	LowStock     bool   `json:"low_stock"`
+}
+
+// ToListItemView maps the supply to the listing DTO. low_stock is derived: the supply
+// is at (or below) its minimum stock.
+func (s *Supply) ToListItemView() SupplyListItemView {
+	return SupplyListItemView{
+		SKU:          s.SKU,
+		Name:         s.Name,
+		CurrentStock: s.CurrentStock,
+		MinStock:     s.MinStockQuantity,
+		ClinicID:     s.ClinicID,
+		Unit:         s.Unit,
+		LowStock:     s.CurrentStock <= s.MinStockQuantity,
+	}
+}

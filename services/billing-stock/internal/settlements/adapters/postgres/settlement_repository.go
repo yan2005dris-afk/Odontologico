@@ -3,8 +3,10 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
+	"github.com/sigo-dental/billing-stock/internal/settlements/application"
 	"github.com/sigo-dental/billing-stock/internal/settlements/domain"
 )
 
@@ -71,4 +73,76 @@ func (r *InMemorySettlementRepository) SaveSettlement(_ context.Context, settlem
 	cp.Items = append([]domain.SettlementItem(nil), settlement.Items...)
 	r.settlements[settlement.SettlementID] = &cp
 	return nil
+}
+
+// ListSettlements returns the settlements matching the filter ordered by creation date
+// descending with the ID as tiebreaker, so pagination neither duplicates nor skips rows.
+func (r *InMemorySettlementRepository) ListSettlements(_ context.Context, filter application.SettlementFilter) ([]domain.DentistSettlement, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	matched := make([]domain.DentistSettlement, 0, len(r.settlements))
+	for _, settlement := range r.settlements {
+		if filter.DentistID != "" && settlement.DentistID != filter.DentistID {
+			continue
+		}
+		if filter.From != nil && settlement.CreatedAt.Before(*filter.From) {
+			continue
+		}
+		if filter.To != nil && settlement.CreatedAt.After(*filter.To) {
+			continue
+		}
+		cp := *settlement
+		cp.Items = append([]domain.SettlementItem(nil), settlement.Items...)
+		matched = append(matched, cp)
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].SettlementID < matched[j].SettlementID
+	})
+
+	total := len(matched)
+	limit, offset := application.NormalizePage(filter.Limit, filter.Offset)
+	return page(matched, limit, offset), total, nil
+}
+
+// ListCommissionRules returns the commission rules matching the filter. The rule model
+// has no creation timestamp, so the deterministic order falls back to the rule ID.
+func (r *InMemorySettlementRepository) ListCommissionRules(_ context.Context, filter application.CommissionRuleFilter) ([]domain.CommissionRule, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	matched := make([]domain.CommissionRule, 0, len(r.rules))
+	for _, rule := range r.rules {
+		if filter.DentistID != "" && rule.DentistID != filter.DentistID {
+			continue
+		}
+		if filter.ProcedureCode != "" && rule.ProcedureCode != filter.ProcedureCode {
+			continue
+		}
+		matched = append(matched, *rule)
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].ID < matched[j].ID
+	})
+
+	total := len(matched)
+	limit, offset := application.NormalizePage(filter.Limit, filter.Offset)
+	return page(matched, limit, offset), total, nil
+}
+
+// page returns the requested window of an already ordered slice.
+func page[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end]
 }

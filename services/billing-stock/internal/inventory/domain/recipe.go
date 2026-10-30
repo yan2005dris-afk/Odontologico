@@ -34,6 +34,33 @@ type ProcedureDeductionResult struct {
 	DeductedItems          []DeductedSupplyItem `json:"deducted_items"`
 }
 
+// RecipeItemListView is the DTO of a recipe line.
+type RecipeItemListView struct {
+	SKU      string `json:"sku"`
+	Quantity int    `json:"quantity"`
+}
+
+// RecipeListItemView is the DTO of the recipe listing.
+type RecipeListItemView struct {
+	ProcedureCode string               `json:"procedure_code"`
+	Items         []RecipeItemListView `json:"items"`
+}
+
+// ToListItemView maps the recipe to the listing DTO.
+func (r *ProcedureRecipe) ToListItemView() RecipeListItemView {
+	items := make([]RecipeItemListView, 0, len(r.Items))
+	for _, item := range r.Items {
+		items = append(items, RecipeItemListView{
+			SKU:      item.SupplySKU,
+			Quantity: item.QuantityPerProcedure,
+		})
+	}
+	return RecipeListItemView{
+		ProcedureCode: r.ProcedureCode,
+		Items:         items,
+	}
+}
+
 func NewProcedureRecipe(procedureCode string, items []RecipeItem) (*ProcedureRecipe, error) {
 	if strings.TrimSpace(procedureCode) == "" || len(items) == 0 {
 		return nil, ErrInvalidRecipeInput

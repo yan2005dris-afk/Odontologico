@@ -3,16 +3,19 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
+	"github.com/sigo-dental/billing-stock/internal/inventory/application"
 	"github.com/sigo-dental/billing-stock/internal/inventory/domain"
 )
 
 type InMemoryInventoryRepository struct {
-	mu                sync.RWMutex
-	supplies          map[string]*domain.Supply
-	recipes           map[string]*domain.ProcedureRecipe
-	deductionsByProc  map[string]*domain.ProcedureDeductionResult
+	mu               sync.RWMutex
+	supplies         map[string]*domain.Supply
+	recipes          map[string]*domain.ProcedureRecipe
+	deductionsByProc map[string]*domain.ProcedureDeductionResult
 }
 
 func NewInMemoryInventoryRepository() *InMemoryInventoryRepository {
@@ -131,4 +134,72 @@ func (r *InMemoryInventoryRepository) ExecuteAtomicProcedureDeduction(
 	cp := *result
 	cp.DeductedItems = append([]domain.DeductedSupplyItem(nil), result.DeductedItems...)
 	return &cp, nil
+}
+
+// ListSupplies returns the supplies matching the filter. The supply model has no
+// creation timestamp, so the deterministic order falls back to the supply ID.
+func (r *InMemoryInventoryRepository) ListSupplies(_ context.Context, filter application.SupplyFilter) ([]domain.Supply, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	matched := make([]domain.Supply, 0, len(r.supplies))
+	for _, supply := range r.supplies {
+		if filter.ClinicID != "" && supply.ClinicID != filter.ClinicID {
+			continue
+		}
+		if query != "" &&
+			!strings.Contains(strings.ToLower(supply.SKU), query) &&
+			!strings.Contains(strings.ToLower(supply.Name), query) {
+			continue
+		}
+		if filter.LowStockOnly && supply.CurrentStock > supply.MinStockQuantity {
+			continue
+		}
+		matched = append(matched, *supply)
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].ID < matched[j].ID
+	})
+
+	total := len(matched)
+	limit, offset := application.NormalizePage(filter.Limit, filter.Offset)
+	return page(matched, limit, offset), total, nil
+}
+
+// ListRecipes returns the recipes matching the filter ordered by procedure code.
+func (r *InMemoryInventoryRepository) ListRecipes(_ context.Context, filter application.RecipeFilter) ([]domain.ProcedureRecipe, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	matched := make([]domain.ProcedureRecipe, 0, len(r.recipes))
+	for _, recipe := range r.recipes {
+		if filter.ProcedureCode != "" && recipe.ProcedureCode != filter.ProcedureCode {
+			continue
+		}
+		cp := *recipe
+		cp.Items = append([]domain.RecipeItem(nil), recipe.Items...)
+		matched = append(matched, cp)
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].ProcedureCode < matched[j].ProcedureCode
+	})
+
+	total := len(matched)
+	limit, offset := application.NormalizePage(filter.Limit, filter.Offset)
+	return page(matched, limit, offset), total, nil
+}
+
+// page returns the requested window of an already ordered slice.
+func page[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end]
 }

@@ -3,8 +3,12 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sigo-dental/billing-stock/internal/billing/application"
 	"github.com/sigo-dental/billing-stock/internal/billing/domain"
@@ -20,10 +24,12 @@ func NewBillingHandler(service *application.BillingService) *BillingHandler {
 
 func (h *BillingHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/billing/cash-registers", h.handleOpenCashRegister)
+	mux.HandleFunc("GET /api/v1/billing/cash-registers", h.handleListCashRegisters)
 	mux.HandleFunc("GET /api/v1/billing/cash-registers/{id}", h.handleGetCashRegister)
 	mux.HandleFunc("POST /api/v1/billing/cash-registers/{id}/blind-close", h.handleBlindClose)
 	mux.HandleFunc("GET /api/v1/billing/cash-registers/{id}/audit-report", h.handleGetAuditReport)
 	mux.HandleFunc("POST /api/v1/billing/invoices", h.handleIssueInvoice)
+	mux.HandleFunc("GET /api/v1/billing/invoices", h.handleListInvoices)
 }
 
 func extractActor(r *http.Request) application.ActorContext {
@@ -43,6 +49,35 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// parseLimitOffset reads the pagination parameters. Unparseable values fall back to the
+// defaults applied by the service (limit=50 with a hard cap of 200, offset=0).
+func parseLimitOffset(query url.Values) (int, int) {
+	limit, _ := strconv.Atoi(strings.TrimSpace(query.Get("limit")))
+	offset, _ := strconv.Atoi(strings.TrimSpace(query.Get("offset")))
+	return limit, offset
+}
+
+// parseDateParam reads an ISO-8601 date filter. It accepts RFC3339 timestamps and plain
+// calendar dates; a plain date used as upper bound covers the whole day.
+func parseDateParam(raw string, endOfDay bool) (*time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	if ts, err := time.Parse(time.RFC3339, value); err == nil {
+		utc := ts.UTC()
+		return &utc, nil
+	}
+	if ts, err := time.Parse("2006-01-02", value); err == nil {
+		utc := ts.UTC()
+		if endOfDay {
+			utc = utc.Add(24*time.Hour - time.Nanosecond)
+		}
+		return &utc, nil
+	}
+	return nil, fmt.Errorf("invalid date filter %q", raw)
 }
 
 func writeError(w http.ResponseWriter, err error) {
@@ -128,4 +163,59 @@ func (h *BillingHandler) handleIssueInvoice(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusCreated, inv)
+}
+
+// handleListInvoices answers GET /api/v1/billing/invoices with the {items,total}
+// contract. Filters: patient_id, fiscal_status, from, to, limit, offset.
+func (h *BillingHandler) handleListInvoices(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	filter := application.InvoiceFilter{
+		PatientID:    strings.TrimSpace(query.Get("patient_id")),
+		FiscalStatus: strings.ToUpper(strings.TrimSpace(query.Get("fiscal_status"))),
+	}
+	filter.Limit, filter.Offset = parseLimitOffset(query)
+
+	from, err := parseDateParam(query.Get("from"), false)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "INVALID_QUERY"})
+		return
+	}
+	to, err := parseDateParam(query.Get("to"), true)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "INVALID_QUERY"})
+		return
+	}
+	filter.From = from
+	filter.To = to
+
+	items, total, err := h.service.ListInvoices(r.Context(), extractActor(r), filter)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
+}
+
+// handleListCashRegisters answers GET /api/v1/billing/cash-registers with the
+// {items,total} contract. RN-02: an OPEN register never exposes the theoretical total.
+func (h *BillingHandler) handleListCashRegisters(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	filter := application.CashRegisterFilter{
+		ClinicID: strings.TrimSpace(query.Get("clinic_id")),
+		Status:   strings.ToUpper(strings.TrimSpace(query.Get("status"))),
+	}
+	filter.Limit, filter.Offset = parseLimitOffset(query)
+
+	items, total, err := h.service.ListCashRegisters(r.Context(), extractActor(r), filter)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }

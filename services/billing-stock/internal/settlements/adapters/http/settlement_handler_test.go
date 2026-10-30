@@ -32,7 +32,7 @@ func doSettlementReq(mux *http.ServeMux, method, path string, body any, actorID,
 
 func TestSettlementHandler_EndToEnd_S1_S2(t *testing.T) {
 	repo := postgres.NewInMemorySettlementRepository()
-	svc := application.NewSettlementService(repo)
+	svc := application.NewSettlementService(repo, nil)
 	handler := settlementhttp.NewSettlementHandler(svc)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -117,4 +117,3 @@ func TestSettlementHandler_EndToEnd_S1_S2(t *testing.T) {
 		t.Fatalf("expected 404 when dentist has no commission rule, got %d", rec.Code)
 	}
 }
-

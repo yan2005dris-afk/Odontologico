@@ -32,7 +32,7 @@ func doInventoryReq(mux *http.ServeMux, method, path string, body any, actorID, 
 
 func TestInventoryHandler_EndToEnd_S3_S4(t *testing.T) {
 	repo := postgres.NewInMemoryInventoryRepository()
-	svc := application.NewInventoryService(repo)
+	svc := application.NewInventoryService(repo, nil)
 	handler := inventoryhttp.NewInventoryHandler(svc)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -146,4 +146,3 @@ func TestInventoryHandler_EndToEnd_S3_S4(t *testing.T) {
 		t.Fatalf("expected 404 for unknown recipe, got %d", rec.Code)
 	}
 }
-

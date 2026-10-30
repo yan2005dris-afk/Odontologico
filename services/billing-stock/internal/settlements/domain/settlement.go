@@ -49,6 +49,33 @@ type DentistSettlement struct {
 	CreatedAt                    time.Time        `json:"created_at"`
 }
 
+// SettlementListItemView is the DTO of the settlement listing.
+type SettlementListItemView struct {
+	DentistID       string `json:"dentist_id"`
+	PeriodFrom      string `json:"period_from"`
+	PeriodTo        string `json:"period_to"`
+	ProcedureCount  int    `json:"procedure_count"`
+	GrossCents      int64  `json:"gross_cents"`
+	CommissionCents int64  `json:"commission_cents"`
+	NetCents        int64  `json:"net_cents"`
+}
+
+// ToListItemView maps the settlement to the listing DTO. The net amount is what the
+// professional nets after the lab and material deductions and the clinic commission.
+func (s *DentistSettlement) ToListItemView() SettlementListItemView {
+	commission := s.NetPayableCommissionCents
+	net := s.GrossFeesCents - s.TotalLabDeductionsCents - s.TotalMaterialDeductionsCents - commission
+	return SettlementListItemView{
+		DentistID:       s.DentistID,
+		PeriodFrom:      s.PeriodStart,
+		PeriodTo:        s.PeriodEnd,
+		ProcedureCount:  len(s.Items),
+		GrossCents:      s.GrossFeesCents,
+		CommissionCents: commission,
+		NetCents:        net,
+	}
+}
+
 func BuildDentistSettlement(
 	id, dentistID, periodStart, periodEnd, generatedBy string,
 	procedures []CompletedProcedureInput,

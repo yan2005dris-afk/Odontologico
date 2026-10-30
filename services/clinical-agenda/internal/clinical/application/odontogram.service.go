@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	ErrClinicalForbiddenRole = errors.New("actor role is not authorized to mutate clinical records")
-	ErrClinicalMFARequired   = errors.New("MFA verification is required for clinical operations")
+	ErrClinicalForbiddenRole     = errors.New("actor role is not authorized to mutate clinical records")
+	ErrClinicalReadForbiddenRole = errors.New("actor role is not authorized to read clinical records")
+	ErrClinicalMFARequired       = errors.New("MFA verification is required for clinical operations")
 )
 
 type stdClock struct{}

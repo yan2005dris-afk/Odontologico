@@ -75,38 +75,69 @@ El login es de **dos pasos** (`RNF-05`): credenciales → desafío MFA → sesi�
 El portal en `http://localhost:3000/login` pide primero el correo y la
 contraseña, y después el código TOTP de 6 dígitos.
 
-El usuario que siembra `clinical-agenda` al arrancar
-(`services/clinical-agenda/cmd/api/main.go:59-70`) es:
+## Usuarios de desarrollo (5 roles canónicos)
 
-| Campo | Valor |
-| :--- | :--- |
-| Correo | `dra.gomez@sigo-dental.com` |
-| Contraseña | `ClinicalPass#2026` |
-| Rol RBAC | `dentist` |
-| Secreto TOTP (base32) | `JBSWY3DPEHPK3PXP` |
+`clinical-agenda` siembra en cada arranque los 5 roles RBAC canónicos de
+`SRS §3` (`admin`, `receptionist`, `dentist`, `assistant`, `auditor`) con
+MFA habilitado y `active = true`. El seed es **idempotente**: si la cuenta ya
+existe no se vuelve a crear.
 
-El secreto es un TOTP RFC 6238 estándar, así que se puede pegar en cualquier
-app de autenticador (Aegis, Google Authenticator, 1Password) para obtener el
-código de 6 dígitos. Para generarlo al vuelo desde la terminal:
+| Rol | Correo | Contraseña | Secreto TOTP (base32) |
+| :--- | :--- | :--- | :--- |
+| `admin` | `admin@sigo-dental.com` | `AdminPass#2026` | `GEZDGNBVGY3TQOJQ` |
+| `receptionist` | `recepcion@sigo-dental.com` | `ReceptionPass#2026` | `MFRGGZDFMZTWQ2LK` |
+| `dentist` | `dra.gomez@sigo-dental.com` | `ClinicalPass#2026` | `JBSWY3DPEHPK3PXP` |
+| `assistant` | `asistente@sigo-dental.com` | `AssistantPass#2026` | `ONSWG4TFOQQGSZLD` |
+| `auditor` | `auditor@sigo-dental.com` | `AuditorPass#2026` | `P3K6H5RTX2W7YZAB` |
+
+Los secretos TOTP son RFC 6238 (30 s, SHA1), así que se pueden pegar en
+cualquier app de autenticador (Aegis, Google Authenticator, 1Password). Para
+generar el código de 6 dígitos al vuelo desde la terminal:
+
+```bash
+cd services/clinical-agenda
+go run ./cmd/totp                   # secreto del dentist sembrado
+go run ./cmd/totp GEZDGNBVGY3TQOJQ  # secreto de cualquier otro rol
+```
+
+Alternativa sin Go (mismo algoritmo):
 
 ```bash
 python3 -c "
-import base64,hmac,hashlib,struct,time
-k=base64.b32decode('JBSWY3DPEHPK3PXP')
+import base64,hmac,hashlib,struct,sys,time
+k=base32.b32decode(sys.argv[1])
 h=hmac.new(k,struct.pack('>Q',int(time.time())//30),hashlib.sha1).digest()
 o=h[-1]&15
-print(str((struct.unpack('>I',h[o:o+4])[0]&0x7fffffff)%1000000).zfill(6))"
+print(str((struct.unpack('>I',h[o:o+4])[0]&0x7fffffff)%1000000).zfill(6))" JBSWY3DPEHPK3PXP
 ```
+
+### Secretos TOTP por variable de entorno
+
+Cada secreto sembrado se lee de una variable de entorno con **valor por
+defecto determinista**. Si no se define, se usa el valor de la tabla
+anterior, de modo que el equipo puede autenticarse sin ningún canal fuera de
+banda:
+
+| Variable de entorno | Valor por defecto | Rol |
+| :--- | :--- | :--- |
+| `SIGO_SEED_TOTP_ADMIN` | `GEZDGNBVGY3TQOJQ` | `admin` |
+| `SIGO_SEED_TOTP_RECEPTIONIST` | `MFRGGZDFMZTWQ2LK` | `receptionist` |
+| `SIGO_SEED_TOTP_DENTIST` | `JBSWY3DPEHPK3PXP` | `dentist` |
+| `SIGO_SEED_TOTP_ASSISTANT` | `ONSWG4TFOQQGSZLD` | `assistant` |
+| `SIGO_SEED_TOTP_AUDITOR` | `P3K6H5RTX2W7YZAB` | `auditor` |
 
 **Advertencias operativas:**
 
+- **Estas credenciales son sólo de desarrollo.** No sirven para un entorno
+  productivo: están en el repositorio y los secretos son valores por defecto
+  públicos. En producción hay que aprovisionar las cuentas por otro canal y
+  rotar los secretos.
 - **El repositorio de usuarios es en memoria.** Cada reinicio del contenedor
-  vuelve a sembrar el usuario y **borra pacientes, turnos, facturas y
-  liquidaciones**. Los datos no sobreviven a un `docker compose restart`.
-- **Sólo existe un rol sembrado (`dentist`).** Las pantallas de
-  administración (`/users`), auditoría (`/audit`) y facturación (`/billing`)
-  requieren `admin`, `auditor` y `receptionist` respectivamente; con el
-  usuario único no se pueden abrir. `wi-15` siembra los 5 roles canónicos.
+  vuelve a sembrar el juego de usuarios y **borra pacientes, turnos, facturas
+  y liquidaciones**. Los datos no sobreviven a un `docker compose restart`.
+- Con los 5 roles ya se pueden abrir las pantallas de administración
+  (`/users`), auditoría (`/audit`) y facturación (`/billing`), que exigen
+  `admin`, `auditor` y `receptionist` respectivamente.
 - El wire format es **`snake_case`**: `challenge_token`, `totp_code`,
   `access_token`, `idle_timeout_seconds`.
 

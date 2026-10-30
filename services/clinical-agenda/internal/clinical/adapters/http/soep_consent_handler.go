@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/sigo-dental/clinical-agenda/internal/clinical/application"
 	"github.com/sigo-dental/clinical-agenda/internal/clinical/domain"
@@ -28,7 +29,53 @@ func (h *SOEPConsentHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/patients/{id}/soep-notes/{noteId}", h.handleDeleteSOEPNote)
 	mux.HandleFunc("POST /api/v1/patients/{id}/soep-notes/{noteId}/addenda", h.handleAddSOEPAddendum)
 	mux.HandleFunc("POST /api/v1/patients/{id}/consents", h.handleCreateConsent)
+	mux.HandleFunc("GET /api/v1/patients/{id}/consents", h.handleListPatientConsents)
 	mux.HandleFunc("POST /api/v1/patients/{id}/consents/{consentId}/sign", h.handleSignConsent)
+	mux.HandleFunc("GET /api/v1/consents", h.handleListConsents)
+}
+
+// handleListConsents answers the global informed consent listing with the
+// {items,total} contract.
+func (h *SOEPConsentHandler) handleListConsents(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	offset, _ := strconv.Atoi(query.Get("offset"))
+
+	filter := application.ConsentFilter{
+		PatientID:     query.Get("patient_id"),
+		Status:        query.Get("status"),
+		ProcedureCode: query.Get("procedure_code"),
+		Limit:         limit,
+		Offset:        offset,
+	}
+
+	items, total, err := h.consentService.ListConsents(r.Context(), extractActor(r), filter)
+	if err != nil {
+		mapSOEPConsentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
+}
+
+// handleListPatientConsents answers the informed consents of a single
+// patient.
+func (h *SOEPConsentHandler) handleListPatientConsents(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	offset, _ := strconv.Atoi(query.Get("offset"))
+
+	items, total, err := h.consentService.ListConsentsByPatient(r.Context(), extractActor(r), r.PathValue("id"), limit, offset)
+	if err != nil {
+		mapSOEPConsentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }
 
 func (h *SOEPConsentHandler) handleCreateSOEPNote(w http.ResponseWriter, r *http.Request) {
@@ -119,10 +166,14 @@ func mapSOEPConsentError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, application.ErrClinicalMFARequired):
 		writeErr(w, http.StatusForbidden, "MFA_REQUIRED", err.Error())
+	case errors.Is(err, application.ErrClinicalReadForbiddenRole):
+		writeErr(w, http.StatusForbidden, "FORBIDDEN_ROLE", err.Error())
 	case errors.Is(err, application.ErrClinicalForbiddenRole), errors.Is(err, domain.ErrSOEPDifferentAuthor):
 		writeErr(w, http.StatusForbidden, "FORBIDDEN_ROLE", err.Error())
 	case errors.Is(err, domain.ErrSOEPNotFound), errors.Is(err, domain.ErrConsentNotFound):
 		writeErr(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+	case errors.Is(err, application.ErrInvalidConsentStatus):
+		writeErr(w, http.StatusBadRequest, "INVALID_STATUS", err.Error())
 	case errors.Is(err, domain.ErrSOEPNoteLocked):
 		writeErr(w, http.StatusConflict, "SOEP_NOTE_LOCKED", err.Error())
 	case errors.Is(err, domain.ErrConsentAlreadySigned):

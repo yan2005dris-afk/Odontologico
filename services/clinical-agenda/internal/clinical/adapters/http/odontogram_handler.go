@@ -135,7 +135,7 @@ func mapClinicalError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, application.ErrClinicalMFARequired):
 		writeErr(w, http.StatusForbidden, "MFA_REQUIRED", err.Error())
-	case errors.Is(err, application.ErrClinicalForbiddenRole):
+	case errors.Is(err, application.ErrClinicalForbiddenRole), errors.Is(err, application.ErrClinicalReadForbiddenRole):
 		writeErr(w, http.StatusForbidden, "FORBIDDEN_ROLE", err.Error())
 	case errors.Is(err, domain.ErrFindingNotFound):
 		writeErr(w, http.StatusNotFound, "NOT_FOUND", err.Error())

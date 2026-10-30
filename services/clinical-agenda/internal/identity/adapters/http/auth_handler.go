@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/sigo-dental/clinical-agenda/internal/identity/application"
@@ -23,6 +24,32 @@ func (h *AuthHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/mfa/verify", h.handleVerifyMFA)
 	mux.HandleFunc("POST /api/v1/auth/heartbeat", h.handleHeartbeat)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
+	mux.HandleFunc("GET /api/v1/users", h.handleListUsers)
+}
+
+// handleListUsers answers the staff listing with the {items,total} contract.
+// The service restricts it to the `admin` role (SRS §3).
+func (h *AuthHandler) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	offset, _ := strconv.Atoi(query.Get("offset"))
+
+	filter := application.UserFilter{
+		Query:  query.Get("q"),
+		Role:   domain.Role(strings.TrimSpace(query.Get("role"))),
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	items, total, err := h.service.ListUsers(r.Context(), extractActor(r), filter)
+	if err != nil {
+		mapDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }
 
 func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +143,39 @@ func sourceIPFromRequest(r *http.Request) string {
 		return strings.TrimSpace(strings.Split(ip, ",")[0])
 	}
 	return "127.0.0.1"
+}
+
+// extractActor resolves the caller identity injected by the edge gateway.
+func extractActor(r *http.Request) application.ActorMeta {
+	actorID := strings.TrimSpace(r.Header.Get("X-Actor-ID"))
+	if actorID == "" {
+		actorID = "system-actor"
+	}
+	return application.ActorMeta{
+		ActorID:     actorID,
+		ActorRole:   strings.TrimSpace(r.Header.Get("X-Actor-Role")),
+		MFAVerified: strings.EqualFold(strings.TrimSpace(r.Header.Get("X-MFA-Verified")), "true"),
+		SourceIP:    sourceIPFromRequest(r),
+	}
+}
+
+// mapDomainError translates the domain errors of the identity context into the
+// HTTP contract of the service.
+func mapDomainError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, application.ErrForbiddenRole):
+		writeError(w, http.StatusForbidden, "FORBIDDEN_ROLE", err.Error())
+	case errors.Is(err, domain.ErrInvalidCredentials), errors.Is(err, domain.ErrAccountInactive):
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", err.Error())
+	case errors.Is(err, domain.ErrAccountLocked):
+		writeError(w, http.StatusLocked, "ACCOUNT_LOCKED", err.Error())
+	case errors.Is(err, domain.ErrInvalidMFACode):
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA_CODE", err.Error())
+	case errors.Is(err, application.ErrInvalidChallengeToken):
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA_CODE", err.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

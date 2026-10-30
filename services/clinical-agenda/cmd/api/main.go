@@ -46,6 +46,108 @@ func idleSessionRegistrar() identityapp.IdleSessionRegistrar {
 	return identityredis.NewIdleSessionRegistrar(addr, 2*time.Second)
 }
 
+// seedAccount describes one canonical RBAC account created on service boot.
+type seedAccount struct {
+	id          string
+	email       string
+	fullName    string
+	role        identitydom.Role
+	password    string
+	totpEnv     string
+	totpDefault string
+}
+
+// canonicalSeedAccounts holds the 5 canonical RBAC roles of SRS §3 so that the
+// administrative listings and the role gated screens can be exercised without
+// an out-of-band provisioning channel.
+//
+// The `dentist` account keeps the credentials the portal and deploy/README.md
+// document: the default TOTP secret is the one already in use.
+var canonicalSeedAccounts = []seedAccount{
+	{
+		id:          "b1c2d3e4-1111-4a5b-8c9d-0e1f2a3b4c5e",
+		email:       "admin@sigo-dental.com",
+		fullName:    "Andrés Vega Salinas",
+		role:        identitydom.RoleAdmin,
+		password:    "AdminPass#2026",
+		totpEnv:     "SIGO_SEED_TOTP_ADMIN",
+		totpDefault: "GEZDGNBVGY3TQOJQ",
+	},
+	{
+		id:          "b1c2d3e4-2222-4a5b-8c9d-0e1f2a3b4c5e",
+		email:       "recepcion@sigo-dental.com",
+		fullName:    "Lucía Fernández Ruiz",
+		role:        identitydom.RoleReceptionist,
+		password:    "ReceptionPass#2026",
+		totpEnv:     "SIGO_SEED_TOTP_RECEPTIONIST",
+		totpDefault: "MFRGGZDFMZTWQ2LK",
+	},
+	{
+		id:          "c9b1d7a0-1234-4a5b-8c9d-0e1f2a3b4c5d",
+		email:       "dra.gomez@sigo-dental.com",
+		fullName:    "Dra. Valeria Gómez",
+		role:        identitydom.RoleDentist,
+		password:    "ClinicalPass#2026",
+		totpEnv:     "SIGO_SEED_TOTP_DENTIST",
+		totpDefault: "JBSWY3DPEHPK3PXP",
+	},
+	{
+		id:          "b1c2d3e4-3333-4a5b-8c9d-0e1f2a3b4c5e",
+		email:       "asistente@sigo-dental.com",
+		fullName:    "Marcelo Ríos Cabrera",
+		role:        identitydom.RoleAssistant,
+		password:    "AssistantPass#2026",
+		totpEnv:     "SIGO_SEED_TOTP_ASSISTANT",
+		totpDefault: "ONSWG4TFOQQGSZLD",
+	},
+	{
+		id:          "b1c2d3e4-4444-4a5b-8c9d-0e1f2a3b4c5e",
+		email:       "auditor@sigo-dental.com",
+		fullName:    "Paula Herrera Ortiz",
+		role:        identitydom.RoleAuditor,
+		password:    "AuditorPass#2026",
+		totpEnv:     "SIGO_SEED_TOTP_AUDITOR",
+		totpDefault: "P3K6H5RTX2W7YZAB",
+	},
+}
+
+// seedCanonicalUsers creates the 5 canonical RBAC accounts (SRS §3) on every
+// boot. The seed is idempotent: an account that already exists is left
+// untouched, so replaying it never fails nor duplicates accounts.
+func seedCanonicalUsers(ctx context.Context, repo identityapp.UserRepository, now time.Time) error {
+	for _, account := range canonicalSeedAccounts {
+		if _, err := repo.GetByEmail(ctx, account.email); err == nil {
+			continue
+		}
+		user, err := identitydom.NewUser(
+			account.id,
+			account.email,
+			account.fullName,
+			account.role,
+			account.password,
+			seedTOTPSecret(account.totpEnv, account.totpDefault),
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		if err := repo.CreateUser(ctx, user); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedTOTPSecret resolves the development TOTP secret of a seeded account.
+// The secrets are read from the environment with deterministic defaults so the
+// team can authenticate without an out-of-band channel.
+func seedTOTPSecret(envName, fallback string) string {
+	if secret := strings.TrimSpace(os.Getenv(envName)); secret != "" {
+		return strings.ToUpper(secret)
+	}
+	return fallback
+}
+
 func buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -56,17 +158,8 @@ func buildMux() *http.ServeMux {
 	auditHandler.RegisterRoutes(mux)
 
 	userRepo := identitypg.NewUserRepository()
-	defaultDentist, err := identitydom.NewUser(
-		"c9b1d7a0-1234-4a5b-8c9d-0e1f2a3b4c5d",
-		"dra.gomez@sigo-dental.com",
-		"Dra. Valeria Gómez",
-		identitydom.RoleDentist,
-		"ClinicalPass#2026",
-		"JBSWY3DPEHPK3PXP",
-		time.Now().UTC(),
-	)
-	if err == nil {
-		_ = userRepo.CreateUser(context.Background(), defaultDentist)
+	if err := seedCanonicalUsers(context.Background(), userRepo, time.Now().UTC()); err != nil {
+		log.Printf("could not seed the canonical RBAC accounts: %v", err)
 	}
 	authSvc := identityapp.NewAuthService(userRepo, auditSvc, nil, os.Getenv("JWT_SECRET"), idleSessionRegistrar())
 	authHandler := identityhttp.NewAuthHandler(authSvc)

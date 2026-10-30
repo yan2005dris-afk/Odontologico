@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,8 +20,18 @@ import (
 	"github.com/sigo-dental/clinical-agenda/internal/identity/domain"
 )
 
+const (
+	// DefaultListLimit is the page size used when the caller does not ask
+	// for one.
+	DefaultListLimit = 50
+	// MaxListLimit is the hard ceiling of a listing page (RNF-07): a client
+	// cannot exhaust the in-memory repository.
+	MaxListLimit = 200
+)
+
 var (
 	ErrInvalidChallengeToken = errors.New("invalid or expired MFA challenge token")
+	ErrForbiddenRole         = errors.New("actor role is not authorized for this identity operation")
 )
 
 type defaultClock struct{}
@@ -169,17 +181,12 @@ func (s *AuthService) VerifyMFA(ctx context.Context, input VerifyMFAInput) (*Ver
 		return nil, err
 	}
 
-	if s.audit != nil {
-		_, _ = s.audit.Record(ctx, auditapp.RecordInput{
-			ActorID:      user.ID,
-			ActorRole:    string(user.Role),
-			Action:       auditdom.ActionCreate,
-			ResourceType: "USER_SESSION",
-			ResourceID:   sessionID,
-			SourceIP:     input.SourceIP,
-			Metadata:     map[string]string{"mfa_verified": "true"},
-		})
-	}
+	s.recordAudit(ctx, ActorMeta{
+		ActorID:     user.ID,
+		ActorRole:   string(user.Role),
+		MFAVerified: true,
+		SourceIP:    input.SourceIP,
+	}, auditdom.ActionCreate, "USER_SESSION", sessionID, map[string]string{"mfa_verified": "true"})
 
 	return &VerifyMFAOutput{
 		AccessToken: accessToken,
@@ -215,6 +222,87 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 	}
 	sess.Revoke()
 	return s.repo.SaveSession(ctx, sess)
+}
+
+// ListUsers returns the clinic staff accounts (S1). Only the `admin` role may
+// enumerate them: the edge gateway enforces the same rule, this check is the
+// defense in depth of the service (SRS §3).
+//
+// The listing leaves an immutable audit trail with action EXPORT (RNF-06): a
+// bulk read of personal data is an export, not a point read.
+func (s *AuthService) ListUsers(ctx context.Context, actor ActorMeta, filter UserFilter) ([]UserSummaryDTO, int, error) {
+	if err := requireAdminRole(actor); err != nil {
+		return nil, 0, err
+	}
+
+	filter = normalizeUserFilter(filter)
+	users, total, err := s.repo.ListUsers(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]UserSummaryDTO, 0, len(users))
+	for _, u := range users {
+		if u == nil {
+			continue
+		}
+		items = append(items, UserSummaryDTO{
+			ID:         u.ID,
+			Email:      u.Email,
+			FullName:   u.FullName,
+			Role:       u.Role,
+			MFAEnabled: strings.TrimSpace(u.MFASecretEncrypted) != "",
+			IsActive:   u.Active,
+		})
+	}
+
+	s.recordAudit(ctx, actor, auditdom.ActionExport, "USER", "users", map[string]string{
+		"total": strconv.Itoa(total),
+	})
+	return items, total, nil
+}
+
+// normalizeUserFilter applies the pagination contract of the listing API:
+// limit defaults to 50 with a hard ceiling of 200 and offset defaults to 0.
+func normalizeUserFilter(filter UserFilter) UserFilter {
+	filter.Query = strings.TrimSpace(filter.Query)
+	filter.Role = domain.Role(strings.ToLower(strings.TrimSpace(string(filter.Role))))
+	if filter.Limit <= 0 {
+		filter.Limit = DefaultListLimit
+	} else if filter.Limit > MaxListLimit {
+		filter.Limit = MaxListLimit
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return filter
+}
+
+func requireAdminRole(actor ActorMeta) error {
+	if strings.ToLower(strings.TrimSpace(actor.ActorRole)) != string(domain.RoleAdmin) {
+		return ErrForbiddenRole
+	}
+	return nil
+}
+
+// recordAudit appends the immutable audit trail of the operation. A failing
+// recorder must never invalidate the business response, but the failure is
+// logged instead of being silently discarded (RNF-06).
+func (s *AuthService) recordAudit(ctx context.Context, actor ActorMeta, action auditdom.AuditAction, resType, resID string, meta map[string]string) {
+	if s.audit == nil {
+		return
+	}
+	if _, err := s.audit.Record(ctx, auditapp.RecordInput{
+		ActorID:      actor.ActorID,
+		ActorRole:    actor.ActorRole,
+		Action:       action,
+		ResourceType: resType,
+		ResourceID:   resID,
+		SourceIP:     actor.SourceIP,
+		Metadata:     meta,
+	}); err != nil {
+		log.Printf("audit trail could not be recorded (action=%s resource=%s/%s): %v", action, resType, resID, err)
+	}
 }
 
 func (s *AuthService) signJWT(claims map[string]any) (string, error) {

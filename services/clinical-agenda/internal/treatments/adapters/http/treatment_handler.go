@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/sigo-dental/clinical-agenda/internal/treatments/application"
@@ -20,10 +21,56 @@ func NewTreatmentHandler(service *application.TreatmentService) *TreatmentHandle
 
 func (h *TreatmentHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/patients/{id}/treatment-plans", h.handleCreatePlan)
+	mux.HandleFunc("GET /api/v1/patients/{id}/treatment-plans", h.handleListPatientPlans)
+	mux.HandleFunc("GET /api/v1/treatment-plans", h.handleListPlans)
 	mux.HandleFunc("POST /api/v1/treatment-plans/{planId}/approve", h.handleApprovePlan)
 	mux.HandleFunc("POST /api/v1/treatment-plans/{planId}/items/{itemId}/complete", h.handleCompleteItem)
 	mux.HandleFunc("DELETE /api/v1/treatment-plans/{planId}/items/{itemId}", h.handleDeleteItem)
 	mux.HandleFunc("GET /api/v1/patients/{id}/schedulable-tasks", h.handleListSchedulableTasks)
+}
+
+// handleListPlans answers the global treatment plan listing with the
+// {items,total} contract.
+func (h *TreatmentHandler) handleListPlans(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	offset, _ := strconv.Atoi(query.Get("offset"))
+
+	filter := application.PlanFilter{
+		PatientID: query.Get("patient_id"),
+		Status:    query.Get("status"),
+		Query:     query.Get("q"),
+		Limit:     limit,
+		Offset:    offset,
+	}
+
+	items, total, err := h.service.ListPlans(r.Context(), extractActor(r), filter)
+	if err != nil {
+		mapTreatmentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
+}
+
+// handleListPatientPlans answers the treatment plans of a single patient with
+// their items.
+func (h *TreatmentHandler) handleListPatientPlans(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	offset, _ := strconv.Atoi(query.Get("offset"))
+
+	items, total, err := h.service.ListPatientPlans(r.Context(), extractActor(r), r.PathValue("id"), limit, offset)
+	if err != nil {
+		mapTreatmentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }
 
 func (h *TreatmentHandler) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +148,10 @@ func mapTreatmentError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, application.ErrTreatmentMFARequired):
 		writeErr(w, http.StatusForbidden, "MFA_REQUIRED", err.Error())
+	case errors.Is(err, application.ErrTreatmentReadForbiddenRole):
+		writeErr(w, http.StatusForbidden, "FORBIDDEN_ROLE", err.Error())
+	case errors.Is(err, application.ErrInvalidPlanStatus):
+		writeErr(w, http.StatusBadRequest, "INVALID_STATUS", err.Error())
 	case errors.Is(err, application.ErrTreatmentForbiddenRole), errors.Is(err, domain.ErrDiscountLimitExceeded):
 		writeErr(w, http.StatusForbidden, "FORBIDDEN_ROLE_OR_DISCOUNT", err.Error())
 	case errors.Is(err, domain.ErrTreatmentPlanNotFound), errors.Is(err, domain.ErrTreatmentItemNotFound):

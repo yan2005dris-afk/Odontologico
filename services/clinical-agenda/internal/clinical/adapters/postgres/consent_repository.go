@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 
+	"github.com/sigo-dental/clinical-agenda/internal/clinical/application"
 	"github.com/sigo-dental/clinical-agenda/internal/clinical/domain"
 )
 
@@ -50,14 +53,57 @@ func (r *ConsentRepository) GetConsentByID(_ context.Context, patientID, consent
 	return nil, domain.ErrConsentNotFound
 }
 
-func (r *ConsentRepository) ListConsentsByPatient(_ context.Context, patientID string) ([]*domain.PatientConsent, error) {
+// ListConsents returns the informed consents matching the filter, ordered by
+// creation date (descending) with the id as tiebreaker so that pagination
+// never duplicates nor skips a consent between pages.
+func (r *ConsentRepository) ListConsents(_ context.Context, filter application.ConsentFilter) ([]*domain.PatientConsent, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	list := r.byPatient[patientID]
-	out := make([]*domain.PatientConsent, len(list))
-	for i, c := range list {
-		cp := *c
-		out[i] = &cp
+
+	matched := make([]*domain.PatientConsent, 0)
+	for _, list := range r.byPatient {
+		for _, c := range list {
+			if filter.PatientID != "" && c.PatientID != filter.PatientID {
+				continue
+			}
+			if filter.Status != "" && c.Status != filter.Status {
+				continue
+			}
+			if filter.SignatureMethod != "" && !strings.EqualFold(c.SignatureMethod, filter.SignatureMethod) {
+				continue
+			}
+			if filter.ProcedureCode != "" && !strings.EqualFold(c.ProcedureCode, filter.ProcedureCode) {
+				continue
+			}
+			cp := *c
+			matched = append(matched, &cp)
+		}
 	}
-	return out, nil
+
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].ID < matched[j].ID
+	})
+
+	total := len(matched)
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = application.DefaultListLimit
+	} else if limit > application.MaxListLimit {
+		limit = application.MaxListLimit
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return []*domain.PatientConsent{}, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return matched[offset:end], total, nil
 }

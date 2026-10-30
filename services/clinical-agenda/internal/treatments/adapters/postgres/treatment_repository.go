@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 
+	"github.com/sigo-dental/clinical-agenda/internal/treatments/application"
 	"github.com/sigo-dental/clinical-agenda/internal/treatments/domain"
 )
 
@@ -59,6 +62,56 @@ func (r *TreatmentRepository) ListSchedulableTasksByPatient(_ context.Context, p
 	out := make([]domain.SchedulableTask, len(list))
 	copy(out, list)
 	return out, nil
+}
+
+// ListPlans returns the treatment plans matching the filter, ordered by
+// creation date (descending) with the id as tiebreaker so that pagination
+// never duplicates nor skips a plan between pages.
+func (r *TreatmentRepository) ListPlans(_ context.Context, filter application.PlanFilter) ([]*domain.TreatmentPlan, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	matched := make([]*domain.TreatmentPlan, 0, len(r.plansByID))
+	for _, plan := range r.plansByID {
+		if filter.PatientID != "" && plan.PatientID != filter.PatientID {
+			continue
+		}
+		if filter.Status != "" && plan.Status != filter.Status {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(plan.Title), query) {
+			continue
+		}
+		matched = append(matched, clonePlan(plan))
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].ID < matched[j].ID
+	})
+
+	total := len(matched)
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = application.DefaultListLimit
+	} else if limit > application.MaxListLimit {
+		limit = application.MaxListLimit
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return []*domain.TreatmentPlan{}, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return matched[offset:end], total, nil
 }
 
 func clonePlan(p *domain.TreatmentPlan) *domain.TreatmentPlan {

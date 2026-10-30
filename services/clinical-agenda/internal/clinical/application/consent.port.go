@@ -9,7 +9,21 @@ import (
 type ConsentRepository interface {
 	SaveConsent(ctx context.Context, consent *domain.PatientConsent) error
 	GetConsentByID(ctx context.Context, patientID, consentID string) (*domain.PatientConsent, error)
-	ListConsentsByPatient(ctx context.Context, patientID string) ([]*domain.PatientConsent, error)
+	ListConsents(ctx context.Context, filter ConsentFilter) ([]*domain.PatientConsent, int, error)
+}
+
+// ConsentFilter narrows an informed consent listing. Status and
+// SignatureMethod hold domain values (PENDING_SIGNATURE | SIGNED and
+// BIOMETRIC | OTP); the service maps the public vocabulary of the API onto
+// them. Limit and Offset are normalized by the service: limit defaults to 50
+// with a hard ceiling of 200.
+type ConsentFilter struct {
+	PatientID       string
+	Status          string
+	SignatureMethod string
+	ProcedureCode   string
+	Limit           int
+	Offset          int
 }
 
 type BlobStoragePort interface {

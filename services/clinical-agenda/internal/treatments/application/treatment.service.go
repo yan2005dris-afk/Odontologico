@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,9 +16,19 @@ import (
 	"github.com/sigo-dental/clinical-agenda/internal/treatments/domain"
 )
 
+const (
+	// DefaultListLimit is the page size used when the caller does not ask
+	// for one.
+	DefaultListLimit = 50
+	// MaxListLimit is the hard ceiling of a listing page (RNF-07).
+	MaxListLimit = 200
+)
+
 var (
-	ErrTreatmentForbiddenRole = errors.New("actor role is not authorized for this treatment plan operation")
-	ErrTreatmentMFARequired   = errors.New("MFA verification is required for treatment plan operations")
+	ErrTreatmentForbiddenRole     = errors.New("actor role is not authorized for this treatment plan operation")
+	ErrTreatmentReadForbiddenRole = errors.New("actor role is not authorized to read treatment plans")
+	ErrTreatmentMFARequired       = errors.New("MFA verification is required for treatment plan operations")
+	ErrInvalidPlanStatus          = errors.New("status must be one of: DRAFT, PARTIALLY_APPROVED, APPROVED, COMPLETED")
 )
 
 type stdClock struct{}
@@ -183,11 +195,175 @@ func (s *TreatmentService) ListSchedulableTasks(ctx context.Context, actor Actor
 	return tasks, nil
 }
 
+// ListPlans returns the treatment plans matching the filter (S1). The listing
+// leaves an immutable audit trail with action EXPORT (RNF-06).
+func (s *TreatmentService) ListPlans(ctx context.Context, actor ActorMeta, filter PlanFilter) ([]TreatmentPlanSummaryDTO, int, error) {
+	if err := requireTreatmentReadRole(actor); err != nil {
+		return nil, 0, err
+	}
+	normalized, err := normalizePlanFilter(filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	plans, total, err := s.repo.ListPlans(ctx, normalized)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]TreatmentPlanSummaryDTO, 0, len(plans))
+	for _, plan := range plans {
+		if plan == nil {
+			continue
+		}
+		items = append(items, summarizePlan(plan))
+	}
+
+	s.recordAudit(ctx, actor, auditdom.ActionExport, "TREATMENT_PLAN", "treatment-plans", map[string]string{
+		"total": strconv.Itoa(total),
+	})
+	return items, total, nil
+}
+
+// ListPatientPlans returns the treatment plans of a single patient, listed
+// with their items (S1).
+func (s *TreatmentService) ListPatientPlans(ctx context.Context, actor ActorMeta, patientID string, limit, offset int) ([]PatientTreatmentPlanDTO, int, error) {
+	if err := requireTreatmentReadRole(actor); err != nil {
+		return nil, 0, err
+	}
+	patientID = strings.TrimSpace(patientID)
+	filter, err := normalizePlanFilter(PlanFilter{PatientID: patientID, Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	plans, total, err := s.repo.ListPlans(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]PatientTreatmentPlanDTO, 0, len(plans))
+	for _, plan := range plans {
+		if plan == nil {
+			continue
+		}
+		items = append(items, expandPlan(plan))
+	}
+
+	s.recordAudit(ctx, actor, auditdom.ActionExport, "TREATMENT_PLAN", patientID, map[string]string{
+		"total": strconv.Itoa(total),
+	})
+	return items, total, nil
+}
+
+// summarizePlan projects a plan for the global listing.
+func summarizePlan(plan *domain.TreatmentPlan) TreatmentPlanSummaryDTO {
+	return TreatmentPlanSummaryDTO{
+		ID:                 plan.ID,
+		PatientID:          plan.PatientID,
+		Title:              plan.Title,
+		Currency:           plan.Currency,
+		Status:             plan.Status,
+		TotalApprovedCents: plan.ApprovedTotalCents,
+		TotalPlannedCents:  plan.TotalNetCents,
+		CreatedAt:          plan.CreatedAt,
+		UpdatedAt:          plan.UpdatedAt,
+	}
+}
+
+// expandPlan projects a plan with its items for the per patient listing.
+func expandPlan(plan *domain.TreatmentPlan) PatientTreatmentPlanDTO {
+	items := make([]TreatmentPlanItemDTO, 0)
+	for _, phase := range plan.Phases {
+		for _, item := range phase.Items {
+			items = append(items, TreatmentPlanItemDTO{
+				ID:            item.ID,
+				PhaseNumber:   item.PhaseNumber,
+				ProcedureCode: item.ProcedureCode,
+				ProcedureName: item.ProcedureName,
+				ToothFDI:      item.ToothFDI,
+				NetCents:      item.NetCents,
+				Status:        item.Status,
+			})
+		}
+	}
+	return PatientTreatmentPlanDTO{
+		ID:                 plan.ID,
+		PatientID:          plan.PatientID,
+		Title:              plan.Title,
+		Currency:           plan.Currency,
+		Status:             plan.Status,
+		TotalApprovedCents: plan.ApprovedTotalCents,
+		TotalPlannedCents:  plan.TotalNetCents,
+		Items:              items,
+		CreatedAt:          plan.CreatedAt,
+		UpdatedAt:          plan.UpdatedAt,
+	}
+}
+
+// normalizePlanFilter maps the public vocabulary of the listing API onto the
+// domain statuses and applies the pagination contract: limit defaults to 50
+// with a hard ceiling of 200, offset defaults to 0.
+func normalizePlanFilter(filter PlanFilter) (PlanFilter, error) {
+	filter.PatientID = strings.TrimSpace(filter.PatientID)
+	filter.Query = strings.TrimSpace(filter.Query)
+
+	status, err := normalizePlanStatus(filter.Status)
+	if err != nil {
+		return filter, err
+	}
+	filter.Status = status
+
+	if filter.Limit <= 0 {
+		filter.Limit = DefaultListLimit
+	} else if filter.Limit > MaxListLimit {
+		filter.Limit = MaxListLimit
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return filter, nil
+}
+
+// normalizePlanStatus maps the public status vocabulary of the listing API
+// (DRAFT | PARTIALLY_APPROVED | APPROVED | COMPLETED) onto the domain
+// statuses (DRAFT | APPROVED_PARTIAL | APPROVED_TOTAL | COMPLETED).
+func normalizePlanStatus(status string) (string, error) {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "":
+		return "", nil
+	case "DRAFT":
+		return "DRAFT", nil
+	case "PARTIALLY_APPROVED", "APPROVED_PARTIAL":
+		return "APPROVED_PARTIAL", nil
+	case "APPROVED", "APPROVED_TOTAL":
+		return "APPROVED_TOTAL", nil
+	case "COMPLETED":
+		return "COMPLETED", nil
+	default:
+		return "", ErrInvalidPlanStatus
+	}
+}
+
+// requireTreatmentReadRole restricts the plan listings to the roles allowed to
+// read treatment and budget data (SRS §3). The auditor role has no access.
+func requireTreatmentReadRole(actor ActorMeta) error {
+	switch strings.ToLower(strings.TrimSpace(actor.ActorRole)) {
+	case "admin", "dentist", "receptionist", "assistant":
+		return nil
+	default:
+		return ErrTreatmentReadForbiddenRole
+	}
+}
+
+// recordAudit appends the immutable audit trail of the operation. A failing
+// recorder must never invalidate the business response, but the failure is
+// logged instead of being silently discarded (RNF-06).
 func (s *TreatmentService) recordAudit(ctx context.Context, actor ActorMeta, action auditdom.AuditAction, resType, resID string, meta map[string]string) {
 	if s.audit == nil {
 		return
 	}
-	_, _ = s.audit.Record(ctx, auditapp.RecordInput{
+	if _, err := s.audit.Record(ctx, auditapp.RecordInput{
 		ActorID:      actor.ActorID,
 		ActorRole:    actor.ActorRole,
 		Action:       action,
@@ -195,7 +371,9 @@ func (s *TreatmentService) recordAudit(ctx context.Context, actor ActorMeta, act
 		ResourceID:   resID,
 		SourceIP:     actor.SourceIP,
 		Metadata:     meta,
-	})
+	}); err != nil {
+		log.Printf("audit trail could not be recorded (action=%s resource=%s/%s): %v", action, resType, resID, err)
+	}
 }
 
 func genUUID() string {

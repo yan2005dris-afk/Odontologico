@@ -15,10 +15,42 @@ type UserRepository interface {
 	SaveSession(ctx context.Context, session *domain.Session) error
 	GetSession(ctx context.Context, sessionID string) (*domain.Session, error)
 	MarkOTPUsed(ctx context.Context, userID, code string) bool
+	ListUsers(ctx context.Context, filter UserFilter) ([]*domain.User, int, error)
 }
 
 type Clock interface {
 	Now() time.Time
+}
+
+// ActorMeta carries the identity of the caller as resolved by the edge
+// gateway (RNF-05). The gateway injects these headers after stripping the
+// spoofable ones, so they can be trusted for RBAC and audit purposes.
+type ActorMeta struct {
+	ActorID     string
+	ActorRole   string
+	MFAVerified bool
+	SourceIP    string
+}
+
+// UserFilter narrows a staff listing. Limit and Offset are normalized by the
+// service: limit defaults to 50 with a hard ceiling of 200, offset defaults
+// to 0.
+type UserFilter struct {
+	Query  string
+	Role   domain.Role
+	Limit  int
+	Offset int
+}
+
+// UserSummaryDTO is the public projection of a clinic staff account. It never
+// exposes the password hash nor the TOTP secret.
+type UserSummaryDTO struct {
+	ID         string      `json:"id"`
+	Email      string      `json:"email"`
+	FullName   string      `json:"full_name"`
+	Role       domain.Role `json:"role"`
+	MFAEnabled bool        `json:"mfa_enabled"`
+	IsActive   bool        `json:"is_active"`
 }
 
 // IdleSessionRegistrar publishes the idle-session marker of a freshly created

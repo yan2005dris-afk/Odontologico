@@ -87,7 +87,7 @@ func (s *GatewayService) AuthorizeRequest(ctx context.Context, req IngressReques
 	}
 
 	// S4: Enforce mandatory MFA on clinical and financial routes.
-	if domain.RequiresMFA(req.Path) && !claims.MFAVerified {
+	if domain.RequiresMFAForMethod(req.Method, req.Path) && !claims.MFAVerified {
 		return IngressDecision{}, domain.ErrMFARequired
 	}
 
@@ -107,9 +107,12 @@ func ResolveUpstream(path string) UpstreamTarget {
 	clean := strings.TrimRight(path, "/")
 	switch {
 	case strings.HasPrefix(clean, "/api/v1/auth"),
+		strings.HasPrefix(clean, "/api/v1/users"),
 		strings.HasPrefix(clean, "/api/v1/patients"),
 		strings.HasPrefix(clean, "/api/v1/clinical"),
 		strings.HasPrefix(clean, "/api/v1/treatments"),
+		strings.HasPrefix(clean, "/api/v1/treatment-plans"),
+		strings.HasPrefix(clean, "/api/v1/consents"),
 		strings.HasPrefix(clean, "/api/v1/scheduling"),
 		strings.HasPrefix(clean, "/api/v1/audit"):
 		return UpstreamClinicalAgenda

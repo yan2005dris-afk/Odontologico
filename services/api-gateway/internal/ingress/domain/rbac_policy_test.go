@@ -288,3 +288,93 @@ func TestRBACPolicy_IsAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestHS256Verifier_VerifyToken(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	secret := "test-gateway-secret-key-256-bits"
+	verifier := domain.NewHS256Verifier(secret, func() time.Time { return now })
+
+	validClaims := domain.Claims{
+		Subject:     "user-100",
+		SessionID:   "sess-100",
+		Role:        domain.RoleDentist,
+		MFAVerified: true,
+		ExpiresAt:   now.Add(15 * time.Minute).Unix(),
+	}
+
+	token, err := domain.SignHS256Token(validClaims, secret)
+	if err != nil {
+		t.Fatalf("SignHS256Token failed: %v", err)
+	}
+
+	got, err := verifier.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("expected valid token, got error: %v", err)
+	}
+	if got.Subject != validClaims.Subject || got.Role != validClaims.Role || !got.MFAVerified {
+		t.Fatalf("claims mismatch: got %+v, want %+v", got, validClaims)
+	}
+
+	// Reject wrong signature
+	badSigToken, _ := domain.SignHS256Token(validClaims, "wrong-secret")
+	if _, err := verifier.VerifyToken(badSigToken); err != domain.ErrInvalidSignature {
+		t.Fatalf("expected ErrInvalidSignature, got %v", err)
+	}
+
+	// Reject alg=none attack ("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ1MSJ9.")
+	noneToken := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ1MSJ9.sig"
+	if _, err := verifier.VerifyToken(noneToken); err != domain.ErrUnsupportedAlg {
+		t.Fatalf("expected ErrUnsupportedAlg, got %v", err)
+	}
+
+	// Reject malformed token
+	if _, err := verifier.VerifyToken("not-a-jwt"); err != domain.ErrMalformedToken {
+		t.Fatalf("expected ErrMalformedToken, got %v", err)
+	}
+	if _, err := verifier.VerifyToken("!!!.payload.sig"); err != domain.ErrMalformedToken {
+		t.Fatalf("expected ErrMalformedToken on bad header b64, got %v", err)
+	}
+	if _, err := verifier.VerifyToken("bm90LWpzb24.payload.sig"); err != domain.ErrMalformedToken {
+		t.Fatalf("expected ErrMalformedToken on non-json header, got %v", err)
+	}
+
+	// Additional RBAC matrix branch coverage
+	policy := domain.NewDefaultRBACPolicy()
+	if policy.IsAllowed(domain.Role("invalid"), "GET", "/api/v1/patients") {
+		t.Fatalf("expected false for invalid role")
+	}
+	if !policy.IsAllowed(domain.RoleAssistant, "GET", "/api/v1/patients") {
+		t.Fatalf("expected assistant GET /api/v1/patients to be allowed")
+	}
+	if policy.IsAllowed(domain.RoleAssistant, "POST", "/api/v1/patients") {
+		t.Fatalf("expected assistant POST /api/v1/patients to be denied")
+	}
+	if !policy.IsAllowed(domain.RoleReceptionist, "GET", "/api/v1/treatments/plans") {
+		t.Fatalf("expected receptionist GET /api/v1/treatments/plans to be allowed")
+	}
+	if policy.IsAllowed(domain.RoleReceptionist, "POST", "/api/v1/treatments/plans") {
+		t.Fatalf("expected receptionist POST /api/v1/treatments/plans to be denied")
+	}
+	if !policy.IsAllowed(domain.RoleAssistant, "PATCH", "/api/v1/scheduling/appointments") {
+		t.Fatalf("expected assistant PATCH /api/v1/scheduling/appointments to be allowed")
+	}
+	if policy.IsAllowed(domain.RoleAuditor, "GET", "/api/v1/scheduling/appointments") {
+		t.Fatalf("expected auditor GET /api/v1/scheduling/appointments to be denied")
+	}
+	if !policy.IsAllowed(domain.RoleDentist, "GET", "/api/v1/inventory/supplies") {
+		t.Fatalf("expected dentist GET /api/v1/inventory/supplies to be allowed")
+	}
+	if policy.IsAllowed(domain.RoleReceptionist, "GET", "/api/v1/inventory/supplies") {
+		t.Fatalf("expected receptionist GET /api/v1/inventory/supplies to be denied")
+	}
+	if policy.IsAllowed(domain.RoleDentist, "GET", "/api/v1/audit/logs") {
+		t.Fatalf("expected dentist GET /api/v1/audit/logs to be denied")
+	}
+	if !policy.IsAllowed(domain.RoleDentist, "GET", "/api/v1/patients/p1/anamnesis") {
+		t.Fatalf("expected dentist GET anamnesis to be allowed")
+	}
+	if domain.RequiresMFA("/") {
+		t.Fatalf("expected root path not to require MFA")
+	}
+}
+

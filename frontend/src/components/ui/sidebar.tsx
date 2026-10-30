@@ -487,6 +487,18 @@ const sidebarMenuButtonVariants = cva(
   }
 )
 
+/**
+ * Menu button of the sidebar.
+ *
+ * `data-active` is rendered as `"true"` or **omitted**. Tailwind v4 compiles
+ * the `data-active:` variant to the attribute PRESENCE selector
+ * `[data-active]`; React would render `data-active="false"` for an inactive
+ * button, so every entry of the menu would match the active background and
+ * the operator could not tell which page they are on.
+ *
+ * NOTE: a future `shadcn add --overwrite` of this file reverts the fix;
+ * re-apply it if that happens.
+ */
 function SidebarMenuButton({
   asChild = false,
   isActive = false,
@@ -508,7 +520,7 @@ function SidebarMenuButton({
       data-slot="sidebar-menu-button"
       data-sidebar="menu-button"
       data-size={size}
-      data-active={isActive}
+      data-active={isActive ? "true" : undefined}
       className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
       {...props}
     />
@@ -664,7 +676,7 @@ function SidebarMenuSubButton({
       data-slot="sidebar-menu-sub-button"
       data-sidebar="menu-sub-button"
       data-size={size}
-      data-active={isActive}
+      data-active={isActive ? "true" : undefined}
       className={cn(
         "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground ring-sidebar-ring outline-hidden group-data-[collapsible=icon]:hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[size=md]:text-sm data-[size=sm]:text-xs data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
         className

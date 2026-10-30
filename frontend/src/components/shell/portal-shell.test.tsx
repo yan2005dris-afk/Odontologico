@@ -69,6 +69,22 @@ describe("wi-14 S5 — PortalShell", () => {
     expect(active).toHaveAttribute("aria-current", "page");
   });
 
+  it("marks only the active entry with the data-active attribute", () => {
+    renderShell("dentist");
+
+    const nav = screen.getByRole("navigation", { name: "Navegación Principal SIGO-Dental" });
+    const links = within(nav).getAllByRole("link");
+    const active = links.filter((link) => link.hasAttribute("data-active"));
+
+    // Tailwind v4 compiles `data-active:` to the attribute PRESENCE selector
+    // `[data-active]`, so an inactive entry that still carried the attribute
+    // would paint the active background too and the operator could not tell
+    // which page they were on.
+    expect(active).toHaveLength(1);
+    expect(active[0]).toHaveAttribute("data-active", "true");
+    expect(active[0]).toHaveTextContent("Pacientes");
+  });
+
   it("shows the route in the breadcrumb", () => {
     renderShell("dentist");
 

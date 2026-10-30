@@ -150,6 +150,24 @@ Cada uno de estos salió de una prueba o de una verificación real, no de una le
 | 11 | pnpm ≥ 12 aborta con `ERR_PNPM_IGNORED_BUILDS`: el campo `pnpm` del `package.json` ya no se lee | `pnpm install` | `pnpm-workspace.yaml` con el mapa `allowBuilds` (la lista `onlyBuiltDependencies` quedó obsoleta) |
 | 12 | Dos errores de lint **preexistentes** (`<a>` en vez de `<Link>`) en las páginas de pacientes, heredados de wi-13, impedían que `pnpm lint` terminara en 0 | `pnpm lint` | `<Link>` importado y usado en `patients/page.tsx:142` y `patients/[id]/page.tsx:120` |
 | 13 | **El ítem activo de la sidebar era indistinguible**: Tailwind v4 compila el variant `data-active:` al selector de *presencia* `[data-active]`, y React renderiza `data-active="false"` en los ítems inactivos → la regla `data-active:bg-sidebar-accent` pintaba el fondo activo en **los 5** ítems del menú | inspección del DOM computado con navegador real (`getComputedStyle`) | `data-active={isActive ? "true" : undefined}` en `ui/sidebar.tsx` (2 ocurrencias) + test de regresión en `portal-shell.test.tsx` |
+| 14 | **Banner de validación falso en `/patients`**: `LEGAL_GUARDIAN_REQUIRED_FOR_MINOR` al cargar la página. `calculatePatientAge("")` devolvía `0`, de modo que el borrador intacto se interpretaba como «paciente de 0 años» y el validador exigía tutor legal | reporte del usuario + `git log -S` (el defecto viene del scaffolding de wi-10, no de wi-14) | `hasCompleteBirthDate()` distingue «edad desconocida» de «0 años»; `validatePatientRegistration()` ya no marca `isMinor` sin fecha válida y expone `ageKnown`; `isPristinePatientDraft()` suprime el banner, el «0 años» y la afirmación de menor de edad mientras el formulario está intacto. La validación real del backend no se toca |
+
+### 3.1 Defecto 14 — verificación end-to-end del banner falso
+
+El fix se validó contra el portal real, con Chromium y el login completo (correo + MFA), comprobando **las dos** rutas:
+
+| Comprobación | Resultado |
+| :--- | :--- |
+| `/patients` sin banner «Error de validación» ni código `LEGAL_GUARDIAN_REQUIRED_FOR_MINOR` | PASS |
+| `/patients` sin «Edad calculada: 0 años»; muestra «Edad calculada: —» | PASS |
+| `/patients` no afirma «Paciente menor de 18 años»; la leyenda queda condicional | PASS |
+| El bloque «Tutor Legal Obligatorio» sigue disponible para el caso menor | PASS |
+| El alta real de un menor sin tutor redirige a `/patients?error=LEGAL_GUARDIAN_REQUIRED_FOR_MINOR` | PASS |
+| El banner **real** (`data-banner="intake-error"`) sí se muestra tras ese rechazo | PASS |
+
+11/11 comprobaciones OK. Capturas: `/tmp/shot/06-pacientes-sin-banner-falso.png` y `/tmp/shot/07-error-real-menor-sin-tutor.png`.
+
+Nota operativa: el servicio clínico **rechaza la reutilización del mismo TOTP dentro de la misma ventana de 30 s** (`auth.service.go`, anti-replay S2). Un script de verificación debe esperar a una ventana nueva antes de calcular el código.
 
 ---
 
@@ -188,8 +206,15 @@ El portal ahora refleja la política que **realmente** se aplica. Si el negocio 
 ```bash
 cd .worktrees/frontend/frontend
 pnpm install --frozen-lockfile
-pnpm test          # 158/158, EXIT=0
+pnpm test          # 167/167, EXIT=0
 npx tsc --noEmit   # sin errores
 pnpm build         # EXIT=0
 pnpm lint          # 0 errores, EXIT=0
+```
+
+Verificación en navegador real (contenedor reconstruido, stack 7/7 healthy):
+
+```bash
+cd deploy && docker compose up -d --build frontend
+cd /tmp/shot && node verify-banner.js   # 11/11 comprobaciones OK
 ```

@@ -66,10 +66,10 @@ $ pnpm add -D eslint@^9 eslint-config-next@^15 @eslint/eslintrc
 ```
 $ pnpm test
   Test Files  23 passed (23)
-       Tests  158 passed (158)
+       Tests  160 passed (160)
 ```
 
-Las 18 suites existentes sólo cambiaron el import `from "node:test"` → `from "vitest"`; sus 111 aserciones (`node:assert/strict`) se conservaron intactas. Se añadieron 47 tests nuevos: `nav-config` (11), `table-state` (8), `data-table` (13), `portal-shell` (10), `primitives` (7).
+Las 18 suites existentes sólo cambiaron el import `from "node:test"` → `from "vitest"`; sus 111 aserciones (`node:assert/strict`) se conservaron intactas. Se añadieron 49 tests nuevos: `nav-config` (11), `table-state` (8), `data-table` (13), `portal-shell` (11), `primitives` (7).
 
 ```
 $ npx tsc --noEmit
@@ -111,6 +111,24 @@ data-sidebar="sidebar" SI
 
 Errores en el log del servidor: **0**.
 
+### 2.5 Verificación con navegador real
+
+Se condujo el portal con Chromium (Playwright, `playwright-core` fuera del repo) siguiendo el flujo real de la interfaz: rellenar el correo y la contraseña, esperar el paso MFA, escribir el TOTP, y navegar.
+
+Capturas en `/tmp/shot/` (`01-login.png`, `02-mfa.png`, `03-portal-pacientes.png`, `04-command-menu.png`, `05-agenda.png`).
+
+La inspección del DOM computado encontró el defecto 13: los cinco ítems del menú tenían `background: rgb(241, 245, 249)`. Corregido y reverificado:
+
+```
+Dashboard          data-active=null   bg=rgba(0, 0, 0, 0)
+Agenda & Turnos    data-active=null   bg=rgba(0, 0, 0, 0)
+Pacientes          data-active="true" bg=rgb(241, 245, 249)
+Liquidaciones      data-active=null   bg=rgba(0, 0, 0, 0)
+Inventario & Recetas data-active=null  bg=rgba(0, 0, 0, 0)
+```
+
+El rol `dentist` **no** ve "Facturación POS": el filtro RBAC de la navegación coincide con la política del gateway.
+
 ---
 
 ## 3. Defectos encontrados y corregidos durante la ejecución
@@ -131,6 +149,7 @@ Cada uno de estos salió de una prueba o de una verificación real, no de una le
 | 10 | Next infería el workspace root desde un `package-lock.json` ajeno y advierte; el `output: "standalone"` podía copiar de menos | `pnpm build` | `outputFileTracingRoot: process.cwd()` en `next.config.ts` |
 | 11 | pnpm ≥ 12 aborta con `ERR_PNPM_IGNORED_BUILDS`: el campo `pnpm` del `package.json` ya no se lee | `pnpm install` | `pnpm-workspace.yaml` con el mapa `allowBuilds` (la lista `onlyBuiltDependencies` quedó obsoleta) |
 | 12 | Dos errores de lint **preexistentes** (`<a>` en vez de `<Link>`) en las páginas de pacientes, heredados de wi-13, impedían que `pnpm lint` terminara en 0 | `pnpm lint` | `<Link>` importado y usado en `patients/page.tsx:142` y `patients/[id]/page.tsx:120` |
+| 13 | **El ítem activo de la sidebar era indistinguible**: Tailwind v4 compila el variant `data-active:` al selector de *presencia* `[data-active]`, y React renderiza `data-active="false"` en los ítems inactivos → la regla `data-active:bg-sidebar-accent` pintaba el fondo activo en **los 5** ítems del menú | inspección del DOM computado con navegador real (`getComputedStyle`) | `data-active={isActive ? "true" : undefined}` en `ui/sidebar.tsx` (2 ocurrencias) + test de regresión en `portal-shell.test.tsx` |
 
 ---
 

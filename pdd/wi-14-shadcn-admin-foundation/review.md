@@ -201,7 +201,23 @@ shell anterior exponía como `<aside role="navigation">` desaparecía, y con
 aria-label="Navegación Principal SIGO-Dental">` propio, con `display:
 contents` para no alterar el layout.
 
-### 4.6 El `TooltipProvider` es una dependencia del shell — hallazgo cerrado
+### 4.6 El ítem activo era indistinguible — hallazgo cerrado
+
+Tailwind v4 compila el variant `data-active:` al selector de **presencia**
+`[data-active]`, y React renderiza `data-active="false"` en un botón
+inactivo. La regla `.data-active\:bg-sidebar-accent[data-active]` aplicaba
+por tanto el fondo activo a **todos** los ítems del menú: el operador no
+podía saber en qué página estaba, en un portal que se maneja en un tablet de
+sillón (`RNF-07`).
+
+Detectado con la inspección del DOM computado de un navegador real, no con
+los tests: `getComputedStyle` devolvía `rgb(241, 245, 249)` en los cinco
+ítems. `src/components/ui/sidebar.tsx` ahora omite el atributo cuando el
+ítem no está activo (`data-active={isActive ? "true" : undefined}`), y
+`portal-shell.test.tsx` fija el invariante con *"marks only the active entry
+with the data-active attribute"*.
+
+### 4.7 El `TooltipProvider` es una dependencia del shell — hallazgo cerrado
 
 El CLI de shadcn lo advirtió al instalar `tooltip` y no lo complied: sin él,
 **toda** la subárbol del portal fallaba en el servidor con
@@ -216,6 +232,7 @@ shell sea autocontenido y su test no dependa de la raíz de la app.
 | # | Observación | Ubicación | Riesgo | Mitigación |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | El fix del `<Command>` wrapper vive en un archivo vendorizado: un `shadcn add --overwrite` lo revierte y la paleta vuelve a romperse | `src/components/ui/command.tsx:66` | medio | La nota en el propio archivo lo advierte; `portal-shell.test.tsx` falla si vuelve a pasar |
+| 1b | El mismo riesgo aplica al fix del atributo `data-active` en el sidebar vendorizado | `src/components/ui/sidebar.tsx:518,681` | medio | JSDoc en el componente y test de regresión que falla si el atributo vuelve a estar presente en los inactivos |
 | 2 | `IMPLEMENTED_ROUTES` es una lista manual: si `wi-16`/`wi-17` crean una ruta y no la anotan, el módulo no aparece en la navegación | `src/lib/nav-config.ts:179` | bajo | `nav-config.test.ts` fija el árbol completo con `onlyImplementedRoutes: false`; la omisión se ve en el diff |
 | 3 | `formatCents` depende del ICU de Node (`toLocaleString("es-EC")`) | `src/components/data-table/column-helpers.ts:52` | bajo | Node incluye ICU completo desde la v13; el test fija la salida exacta |
 | 4 | La `DataTable` usa `useSearchParams()`, que exige una página dinámica o un `Suspense` | `src/components/data-table/data-table.tsx:56` | bajo | Las páginas del portal son dinámicas (leen la cookie de sesión); `wi-16` debe mantener esa condición al añadir rutas |
@@ -226,13 +243,14 @@ shell sea autocontenido y su test no dependa de la raíz de la app.
 
 | Comando | Resultado |
 | :--- | :--- |
-| `pnpm test` | 23 archivos, **158/158** tests, `EXIT=0` |
+| `pnpm test` | 23 archivos, **160/160** tests, `EXIT=0` |
 | `npx tsc --noEmit` | sin errores |
 | `pnpm build` | compila, 12/12 páginas, `EXIT=0` |
 | `pnpm lint` | **0 errores**, 7 warnings preexistentes, `EXIT=0` |
 | Login end-to-end contra el gateway en marcha | `login → 200`, `mfa/verify → 303` con cookie `httpOnly`, `GET /patients → 200` |
 | HTML del portal con el shell nuevo | `data-sidebar="sidebar"`, `<header>`×2, `<main>`×2, `<nav>`×1, paleta e indicador de inactividad presentes, contenido clínico intacto |
 | Errores en el log del servidor | **0** |
+| Flujo completo en Chromium (correo → MFA → portal → paleta ⌘K → agenda) | correcto, 5 capturas |
 
 ---
 

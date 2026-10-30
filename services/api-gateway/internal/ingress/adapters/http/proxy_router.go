@@ -134,8 +134,10 @@ func (pr *ProxyRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Set("X-Request-ID", reqID)
 	r.Header.Set("X-Source-IP", sourceIP)
 
-	// Unauthenticated public login endpoint forwards directly to clinical-agenda identity context.
-	if r.Method == http.MethodPost && strings.TrimRight(r.URL.Path, "/") == "/api/v1/auth/login" {
+	// Unauthenticated public auth endpoints forward directly to clinical-agenda
+	// identity context: login issues the MFA challenge and mfa/verify exchanges
+	// that challengeToken for a session token, so neither can carry a Bearer.
+	if r.Method == http.MethodPost && isPublicAuthPath(r.URL.Path) {
 		pr.clinicalProxy.ServeHTTP(recorder, r)
 		return
 	}
@@ -202,6 +204,18 @@ func NewTLS13Server(addr string, handler http.Handler) *http.Server {
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS13,
 		},
+	}
+}
+
+// isPublicAuthPath reports whether a POST auth path may be forwarded without a
+// Bearer token. Both endpoints authenticate with a short-lived credential in the
+// request body (password, then challengeToken), never with a session token.
+func isPublicAuthPath(path string) bool {
+	switch strings.TrimRight(path, "/") {
+	case "/api/v1/auth/login", "/api/v1/auth/mfa/verify":
+		return true
+	default:
+		return false
 	}
 }
 

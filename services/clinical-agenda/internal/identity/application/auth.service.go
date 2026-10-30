@@ -27,13 +27,25 @@ type defaultClock struct{}
 func (defaultClock) Now() time.Time { return time.Now().UTC() }
 
 type AuthService struct {
-	repo      UserRepository
-	audit     auditapp.Recorder
-	clock     Clock
-	jwtSecret []byte
+	repo         UserRepository
+	audit        auditapp.Recorder
+	clock        Clock
+	jwtSecret    []byte
+	idleSessions IdleSessionRegistrar
 }
 
-func NewAuthService(repo UserRepository, audit auditapp.Recorder, clock Clock, jwtSecret string) *AuthService {
+// NewAuthService builds the identity service.
+//
+// `idleSessions` registers the idle-session marker of every new session in the
+// shared session store; when it is nil the service keeps working without the
+// shared store (local development without Redis).
+func NewAuthService(
+	repo UserRepository,
+	audit auditapp.Recorder,
+	clock Clock,
+	jwtSecret string,
+	idleSessions IdleSessionRegistrar,
+) *AuthService {
 	if clock == nil {
 		clock = defaultClock{}
 	}
@@ -41,10 +53,11 @@ func NewAuthService(repo UserRepository, audit auditapp.Recorder, clock Clock, j
 		jwtSecret = "sigo-dental-default-hs256-secret-key-2026"
 	}
 	return &AuthService{
-		repo:      repo,
-		audit:     audit,
-		clock:     clock,
-		jwtSecret: []byte(jwtSecret),
+		repo:         repo,
+		audit:        audit,
+		clock:        clock,
+		jwtSecret:    []byte(jwtSecret),
+		idleSessions: idleSessions,
 	}
 }
 
@@ -133,6 +146,15 @@ func (s *AuthService) VerifyMFA(ctx context.Context, input VerifyMFAInput) (*Ver
 	sess := domain.NewSession(sessionID, user.ID, user.Role, true, input.SourceIP, now)
 	if err := s.repo.SaveSession(ctx, sess); err != nil {
 		return nil, err
+	}
+
+	// The gateway enforces the 15-minute idle timeout with the shared session
+	// marker (RNF-05). Without it every authenticated request would be
+	// rejected as an expired session.
+	if s.idleSessions != nil {
+		if err := s.idleSessions.RegisterIdleSession(ctx, sessionID, domain.IdleTimeoutSeconds*time.Second); err != nil {
+			return nil, err
+		}
 	}
 
 	accessToken, err := s.signJWT(map[string]any{

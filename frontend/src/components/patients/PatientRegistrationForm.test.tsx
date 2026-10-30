@@ -76,3 +76,109 @@ describe("wi-10 S2 — Unified Patient Registration & Minor Legal Guardian Valid
     assert.equal(result.isMinor, false);
   });
 });
+
+describe("wi-13 S6 — submittable patient registration form", () => {
+  const referenceDate = "2026-10-30";
+
+  const blankDraft = {
+    documentType: "DNI" as const,
+    documentNumber: "",
+    fullName: "",
+    birthDate: "",
+    phone: "",
+    email: "",
+    sex: "F" as const,
+    emergencyContact: { fullName: "", phone: "", relationship: "" },
+    legalGuardian: { fullName: "", documentNumber: "", phone: "", relationship: "" },
+    criticalAlerts: [],
+  };
+
+  it("injects the form action and method into the emitted <form> tag", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.match(html, /<form[^>]*action="\/patients\/create"/);
+    assert.match(html, /<form[^>]*method="post"/);
+  });
+
+  it("keeps the legacy static rendering free of action and method attributes", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate);
+
+    assert.equal(html.includes("action="), false);
+    assert.equal(html.includes("method="), false);
+  });
+
+  it("names every input so the browser can submit the form", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    for (const fieldName of [
+      "fullName",
+      "documentType",
+      "documentNumber",
+      "birthDate",
+      "sex",
+      "phone",
+      "email",
+      "emergencyContactFullName",
+      "emergencyContactPhone",
+      "emergencyContactRelationship",
+      "guardianFullName",
+      "guardianDocumentNumber",
+      "guardianPhone",
+      "guardianRelationship",
+    ]) {
+      assert.equal(html.includes(`name="${fieldName}"`), true, `missing name attribute: ${fieldName}`);
+    }
+  });
+
+  it("exposes the mandatory emergency contact block required by the API", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.match(html, /Contacto de Emergencia/);
+    assert.match(html, /name="emergencyContactFullName"/);
+    assert.match(html, /name="emergencyContactPhone"/);
+    assert.match(html, /name="emergencyContactRelationship"/);
+  });
+
+  it("offers the sex catalog accepted by the clinical service (F|M|X)", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.match(html, /<select[^>]*name="sex"/);
+    assert.match(html, /<option value="F"/);
+    assert.match(html, /<option value="M"/);
+    assert.match(html, /<option value="X"/);
+  });
+
+  it("always exposes the legal guardian block on the submittable form", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.match(html, /Tutor Legal Obligatorio/);
+    assert.match(html, /name="guardianFullName"/);
+    assert.match(html, /name="guardianDocumentNumber"/);
+    assert.match(html, /name="guardianPhone"/);
+    assert.match(html, /name="guardianRelationship"/);
+  });
+
+  it("keeps the submit button enabled on the submittable form", () => {
+    const html = renderPatientRegistrationFormHtml(blankDraft, referenceDate, {
+      formAction: "/patients/create",
+      formMethod: "post",
+    });
+
+    assert.equal(/<button[^>]*\sdisabled(?:\s|>)/.test(html), false);
+  });
+});

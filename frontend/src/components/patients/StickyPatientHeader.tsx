@@ -25,6 +25,16 @@ export interface StickyPatientHeaderViewModel {
   alertBadges: AlertBadgeViewModel[];
 }
 
+/**
+ * Semantic class of a critical alert badge (RF-02). Kept in a single place so
+ * the sticky header and the patient list rows cannot drift apart.
+ */
+function criticalAlertBadgeClass(severity: CriticalAlertDTO["severity"]): string {
+  return severity === "CRITICAL"
+    ? "bg-red-600 text-white border border-red-700 font-semibold"
+    : "bg-amber-100 text-amber-950 border border-amber-400 font-semibold";
+}
+
 export function buildStickyPatientHeaderModel(
   patient: PatientSummaryDTO
 ): StickyPatientHeaderViewModel {
@@ -33,10 +43,7 @@ export function buildStickyPatientHeaderModel(
     label: alert.label,
     severity: alert.severity,
     ariaRole: "alert",
-    badgeClass:
-      alert.severity === "CRITICAL"
-        ? "bg-red-600 text-white border border-red-700 font-semibold"
-        : "bg-amber-100 text-amber-950 border border-amber-400 font-semibold",
+    badgeClass: criticalAlertBadgeClass(alert.severity),
   }));
 
   return {
@@ -47,18 +54,33 @@ export function buildStickyPatientHeaderModel(
   };
 }
 
-export function renderStickyPatientHeaderHtml(patient: PatientSummaryDTO): string {
-  const model = buildStickyPatientHeaderModel(patient);
+/**
+ * Renders the RF-02 critical alert badges of a patient.
+ *
+ * This is the single source of the badge markup: the sticky clinical header and
+ * the patient list rows both call it, so an alert can never be rendered with
+ * two different visual treatments.
+ */
+export function renderCriticalAlertBadgesHtml(alerts: CriticalAlertDTO[]): string {
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return "";
+  }
 
-  const badgesHtml = model.alertBadges
+  return alerts
     .map(
-      (b) =>
-        `<span role="${b.ariaRole}" data-alert-code="${escapeHtml(b.code)}" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs ${b.badgeClass}">
-          <span>ALERTA ${escapeHtml(b.severity)}:</span>
-          <span>${escapeHtml(b.label)}</span>
+      (alert) =>
+        `<span role="alert" data-alert-code="${escapeHtml(alert.code)}" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs ${criticalAlertBadgeClass(alert.severity)}">
+          <span>ALERTA ${escapeHtml(alert.severity)}:</span>
+          <span>${escapeHtml(alert.label)}</span>
         </span>`
     )
     .join("\n");
+}
+
+export function renderStickyPatientHeaderHtml(patient: PatientSummaryDTO): string {
+  const model = buildStickyPatientHeaderModel(patient);
+
+  const badgesHtml = renderCriticalAlertBadgesHtml(patient.criticalAlerts);
 
   const insuranceText = patient.insurancePlan
     ? `${escapeHtml(patient.insurancePlan.providerName)} · ${escapeHtml(patient.insurancePlan.planName)}`

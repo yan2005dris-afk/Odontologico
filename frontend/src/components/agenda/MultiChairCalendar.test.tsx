@@ -126,3 +126,63 @@ describe("wi-10 S4 & S5 — Multi-Chair Calendar, Chair Overlap Prevention (RN-0
     assert.match(html, /role="alert"/);
   });
 });
+
+describe("wi-13 S8 — real appointment state transition control (RF-10, RN-03)", () => {
+  const appointments: CalendarAppointmentDTO[] = [
+    {
+      id: "apt-101",
+      patientId: "pat-001",
+      patientName: "María Fernanda Gómez",
+      chairId: "chair-1",
+      chairLabel: "Sillón 1 - Cirugía",
+      dentistId: "dent-1",
+      dentistName: "Dr. Alejandro Vega",
+      date: "2026-10-30",
+      startTime: "09:00",
+      endTime: "10:00",
+      status: "CONFIRMADO",
+      procedureSummary: "Implante Pieza 16",
+    },
+  ];
+
+  it("keeps the decorative select when the transition hook is omitted", () => {
+    const html = renderMultiChairCalendarHtml({
+      appointments,
+      filter: { view: "day", date: "2026-10-30" },
+    });
+
+    assert.match(html, /<select aria-label="Cambiar estado de cita"/);
+    assert.match(html, /<option value="EN_SALA_DE_ESPERA">EN_SALA_DE_ESPERA<\/option>/);
+    assert.equal(html.includes('action="/agenda/transition"'), false);
+  });
+
+  it("replaces the decorative select with the markup of the transition hook", () => {
+    const html = renderMultiChairCalendarHtml({
+      appointments,
+      filter: { view: "day", date: "2026-10-30" },
+      transitionControlHtml: (appointment) =>
+        `<form method="post" action="/agenda/transition">
+          <input type="hidden" name="appointmentId" value="${appointment.id}" />
+        </form>`,
+    });
+
+    assert.equal(html.includes('action="/agenda/transition"'), true);
+    assert.equal(html.includes('name="appointmentId" value="apt-101"'), true);
+    assert.equal(html.includes('aria-label="Cambiar estado de cita"'), false);
+  });
+
+  it("gives the hook access to the allowed transitions of the appointment", () => {
+    const seen: string[][] = [];
+
+    renderMultiChairCalendarHtml({
+      appointments,
+      filter: { view: "day", date: "2026-10-30" },
+      transitionControlHtml: (appointment) => {
+        seen.push(getAllowedStatusTransitions(appointment.status));
+        return "<form></form>";
+      },
+    });
+
+    assert.deepEqual(seen, [["EN_SALA_DE_ESPERA", "CANCELADO", "NO_SHOW"]]);
+  });
+});

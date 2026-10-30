@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	audithttp "github.com/sigo-dental/clinical-agenda/internal/audit/adapters/http"
@@ -17,6 +18,7 @@ import (
 	clinicalapp "github.com/sigo-dental/clinical-agenda/internal/clinical/application"
 	identityhttp "github.com/sigo-dental/clinical-agenda/internal/identity/adapters/http"
 	identitypg "github.com/sigo-dental/clinical-agenda/internal/identity/adapters/postgres"
+	identityredis "github.com/sigo-dental/clinical-agenda/internal/identity/adapters/redis"
 	identityapp "github.com/sigo-dental/clinical-agenda/internal/identity/application"
 	identitydom "github.com/sigo-dental/clinical-agenda/internal/identity/domain"
 	patienthttp "github.com/sigo-dental/clinical-agenda/internal/patients/adapters/http"
@@ -30,6 +32,19 @@ import (
 	treatmentpg "github.com/sigo-dental/clinical-agenda/internal/treatments/adapters/postgres"
 	treatmentapp "github.com/sigo-dental/clinical-agenda/internal/treatments/application"
 )
+
+// idleSessionRegistrar returns the adapter that publishes the idle-session
+// marker of a new session in the shared session store (Redis). The edge
+// gateway refreshes that marker on every authenticated request and rejects the
+// request when it is gone (RNF-05). Without Redis the service still runs, but
+// the gateway cannot validate the session of a new login.
+func idleSessionRegistrar() identityapp.IdleSessionRegistrar {
+	addr := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
+	if addr == "" {
+		return nil
+	}
+	return identityredis.NewIdleSessionRegistrar(addr, 2*time.Second)
+}
 
 func buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
@@ -53,7 +68,7 @@ func buildMux() *http.ServeMux {
 	if err == nil {
 		_ = userRepo.CreateUser(context.Background(), defaultDentist)
 	}
-	authSvc := identityapp.NewAuthService(userRepo, auditSvc, nil, os.Getenv("JWT_SECRET"))
+	authSvc := identityapp.NewAuthService(userRepo, auditSvc, nil, os.Getenv("JWT_SECRET"), idleSessionRegistrar())
 	authHandler := identityhttp.NewAuthHandler(authSvc)
 	authHandler.RegisterRoutes(mux)
 

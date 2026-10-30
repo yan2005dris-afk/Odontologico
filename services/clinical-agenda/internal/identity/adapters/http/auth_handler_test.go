@@ -24,7 +24,7 @@ func (s *stepClock) Now() time.Time { return s.now }
 func TestAuthHandler_EndToEndFlow(t *testing.T) {
 	repo := postgres.NewUserRepository()
 	clock := &stepClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
-	svc := application.NewAuthService(repo, nil, clock, "test-jwt-secret")
+	svc := application.NewAuthService(repo, nil, clock, "test-jwt-secret", nil)
 
 	secret := "JBSWY3DPEHPK3PXP"
 	user, _ := domain.NewUser("u-1", "dra.gomez@sigo-dental.com", "Dra. Valeria Gómez", domain.RoleDentist, "ClinicalPass#2026", secret, clock.Now())

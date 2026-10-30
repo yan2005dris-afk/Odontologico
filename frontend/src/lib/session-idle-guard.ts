@@ -30,13 +30,27 @@ export interface LegalGuardianInput {
   relationship: string;
 }
 
+/** Emergency contact required by the clinical service for every patient (RF-01). */
+export interface EmergencyContactInput {
+  fullName: string;
+  phone: string;
+  relationship: string;
+}
+
+/** Sex catalog accepted by the clinical service (`F`, `M` or `X`). */
+export type PatientSex = "F" | "M" | "X";
+
 export interface CreatePatientInput {
   documentType: "DNI" | "PASSPORT" | "FOREIGN_ID";
   documentNumber: string;
   fullName: string;
   birthDate: string; // YYYY-MM-DD
+  /** Optional for backward compatibility; mandatory in the clinical API payload. */
+  sex?: PatientSex;
   phone: string;
   email?: string;
+  /** Optional for backward compatibility; mandatory in the clinical API payload. */
+  emergencyContact?: EmergencyContactInput;
   legalGuardian?: LegalGuardianInput;
   criticalAlerts: CriticalAlertDTO[];
 }

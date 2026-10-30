@@ -19,13 +19,31 @@ type manualClock struct {
 
 func (m *manualClock) Now() time.Time { return m.now }
 
+// recordingIdleSessions captures the idle-session markers published by the
+// identity service; the edge gateway needs them to enforce RNF-05.
+type recordingIdleSessions struct {
+	calls []idleSessionCall
+	err   error
+}
+
+type idleSessionCall struct {
+	sessionID string
+	ttl       time.Duration
+}
+
+func (r *recordingIdleSessions) RegisterIdleSession(_ context.Context, sessionID string, ttl time.Duration) error {
+	r.calls = append(r.calls, idleSessionCall{sessionID: sessionID, ttl: ttl})
+	return r.err
+}
+
 func TestAuthService_LoginMFAAndIdleTimeout(t *testing.T) {
 	userRepo := postgres.NewUserRepository()
 	auditRepo := auditpg.NewAuditRepository()
 	clock := &manualClock{now: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
 	auditSvc := auditapp.NewAuditService(auditRepo, clock, nil)
-	authSvc := application.NewAuthService(userRepo, auditSvc, clock, "test-secret-2026")
-	_ = application.NewAuthService(userRepo, nil, nil, "")
+	idleSessions := &recordingIdleSessions{}
+	authSvc := application.NewAuthService(userRepo, auditSvc, clock, "test-secret-2026", idleSessions)
+	_ = application.NewAuthService(userRepo, nil, nil, "", nil)
 
 	secret := "JBSWY3DPEHPK3PXP"
 	user, err := domain.NewUser("c9b1d7a0-1234-4a5b-8c9d-0e1f2a3b4c5d", "dra.gomez@sigo-dental.com", "Dra. Valeria Gómez", domain.RoleDentist, "ClinicalPass#2026", secret, clock.Now())
@@ -109,6 +127,18 @@ func TestAuthService_LoginMFAAndIdleTimeout(t *testing.T) {
 	}
 	if !mfaOut.User.MFAVerified || mfaOut.IdleTimeoutSeconds != 900 || mfaOut.SessionID == "" {
 		t.Fatalf("unexpected MFA output: %+v", mfaOut)
+	}
+
+	// RNF-05: a successful MFA publishes the idle-session marker of the new
+	// session in the shared session store, with the 15-minute idle TTL.
+	if len(idleSessions.calls) != 1 {
+		t.Fatalf("expected exactly one idle session registration, got %d", len(idleSessions.calls))
+	}
+	if idleSessions.calls[0].sessionID != mfaOut.SessionID {
+		t.Fatalf("idle session registered for %q, expected %q", idleSessions.calls[0].sessionID, mfaOut.SessionID)
+	}
+	if idleSessions.calls[0].ttl != 900*time.Second {
+		t.Fatalf("expected idle TTL of 900s, got %s", idleSessions.calls[0].ttl)
 	}
 
 	// S2 adversarial: Replay of the exact same TOTP code must fail

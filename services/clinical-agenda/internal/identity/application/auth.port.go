@@ -21,6 +21,17 @@ type Clock interface {
 	Now() time.Time
 }
 
+// IdleSessionRegistrar publishes the idle-session marker of a freshly created
+// session in the shared session store (Redis, `session:idle:<session_id>`).
+//
+// The edge gateway enforces the 15-minute idle timeout with that marker
+// (RNF-05): it refreshes the TTL on every authenticated request and rejects
+// the request when the key is gone. The identity context owns the birth of the
+// session, so it is the component that registers the marker.
+type IdleSessionRegistrar interface {
+	RegisterIdleSession(ctx context.Context, sessionID string, ttl time.Duration) error
+}
+
 type LoginInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`

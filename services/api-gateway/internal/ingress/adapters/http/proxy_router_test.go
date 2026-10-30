@@ -31,7 +31,7 @@ func TestSpecS1_ComposeTopologyAndTLS13(t *testing.T) {
 	requiredServices := []string{
 		"postgres:",
 		"redis:",
-		"minio:",
+		"rustfs:",
 		"api-gateway:",
 		"clinical-agenda:",
 		"billing-stock:",
@@ -51,6 +51,9 @@ func TestSpecS1_ComposeTopologyAndTLS13(t *testing.T) {
 	}
 	if !strings.Contains(content, `TLS_MIN_VERSION: "1.3"`) {
 		t.Errorf("S1: deploy/compose.yaml missing TLS 1.3 enforcement")
+	}
+	if !strings.Contains(content, "S3_ENDPOINT: http://rustfs:9000") {
+		t.Errorf("S1: deploy/compose.yaml missing S3 endpoint bound to the rustfs service")
 	}
 
 	srv := httpadapter.NewTLS13Server(":8443", http.NotFoundHandler())

@@ -86,7 +86,7 @@ la copia que el agente lee vive en `.pandorx/pandorx.db` y su espejo en
 - **Respuesta:** **C) Container orchestration (Docker Compose / Podman Quadlet).**
 - **Procedencia:** `user`
 - **Follow-up (`infrastructure_deployment.cicd`):** **A) Yes, GitHub Actions.**
-- **Entregables asociados:** Contenedores reproducibles para `frontend` (Next.js), `api-gateway` (Go/Ingress), `clinical-agenda` (Go), `billing-stock` (Go), `postgres`, `redis` y `minio/s3` local, junto con especificación OpenAPI / Swagger v3.0.
+- **Entregables asociados:** Contenedores reproducibles para `frontend` (Next.js), `api-gateway` (Go/Ingress), `clinical-agenda` (Go), `billing-stock` (Go), `postgres`, `redis` y `rustfs/s3` local, junto con especificación OpenAPI / Swagger v3.0.
 
 ## Etapa 8 — Observabilidad y monitoreo (`observability`)
 

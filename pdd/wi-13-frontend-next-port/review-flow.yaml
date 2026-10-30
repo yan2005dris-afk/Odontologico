@@ -1,0 +1,81 @@
+# pandorx review flow — wi-13-frontend-next-port
+#
+# Reviewer model: the global pandorx configuration (~/.pandorx/config.json)
+# assigns "MiniMax-M3" to the reviewer role. The installed pandorx binary
+# ships the `minimax` provider adapter, so the reviewer runs against the
+# MiniMax API with the credential stored in the machine configuration.
+#
+# Usage (from the repository root):
+#   pandorx run --flow=pdd/wi-13-frontend-next-port/review-flow.yaml \
+#     --task="$(cat <material>.txt)" \
+#     --provider="minimax:orchestrator,minimax:implementer,minimax:reviewer"
+#
+# The material under review travels in --task: the reviewer lens receives it
+# verbatim through the {{task}} placeholder. Keep every run bounded (one
+# reviewable slice per run) so a single provider call stays inside the
+# MiniMax adapter timeout.
+name: wi-13-frontend-next-port-review
+description: |
+  Four-lens review of one bounded slice of the wi-13 frontend port, executed
+  by the reviewer model of the global pandorx configuration (MiniMax-M3).
+
+providers:
+  - name: orchestrator
+    provider: minimax
+    model: MiniMax-M3
+  - name: implementer
+    provider: minimax
+    model: MiniMax-M3
+  - name: reviewer
+    provider: minimax
+    model: MiniMax-M3
+
+steps:
+  - name: plan
+    role: orchestrator
+    provider_ref: orchestrator
+    prompt_template: |
+      You are the orchestrator of a code review, not an implementer.
+      Produce a short numbered plan that enumerates what the reviewer lenses
+      must inspect in the material under review: the trust boundaries, the
+      public contracts the change introduces or modifies, the failure modes
+      it must survive, and the observable behaviors it must preserve.
+      Do not write code, do not propose patches, do not repeat the material.
+
+  - name: analysis
+    role: implementer
+    provider_ref: implementer
+    depends_on: [plan]
+    prompt_template: |
+      You are the analyst of a code review, not an implementer.
+      Following the plan of the previous step, write a precise inventory of
+      the change under review: the files it touches, the contracts it
+      introduces, the data flow it establishes, and the invariants it must
+      preserve. Do not write code and do not propose patches; another role
+      writes the findings.
+
+      Plan of the previous step:
+      {{previous_output}}
+
+  - name: review
+    role: reviewer
+    provider_ref: reviewer
+    depends_on: [analysis]
+    prompt_template: |
+      You are a code reviewer. Lens: {{lens}}. Focus only on defects of this
+      lens: security and privilege boundaries; behavior under failure; public
+      contracts and readability; logic and observable behavior.
+
+      Return ONLY a JSON array (no prose) with this shape:
+      [{"id":"f_<16 lowercase hex>","location":"<path>:<line>","severity":"info|minor|major|critical","claim":"<one short sentence>","proof_refs":["<path>:<line>"],"evidence":"<short quote>","evidence_class":"direct|indirect|heuristic","causal_disposition":"introduced|behavior_activated|worsened|pre_existing"}]
+
+      Rules: at most 2 findings; quote the exact line that proves the defect;
+      return [] if you find nothing.
+
+      MATERIAL:
+      {{task}}
+    lenses:
+      - review-risk
+      - review-resilience
+      - review-readability
+      - review-reliability

@@ -1,23 +1,32 @@
 /**
- * Root Layout for SIGO-Dental Web Portal & Chairside PWA (wi-10, AGENTS.md §3).
+ * Root Layout for SIGO-Dental Web Portal & Chairside PWA (wi-13 S1, AGENTS.md §3).
+ *
+ * Next emits the HTML document, so this layout only provides the language, the
+ * document metadata and the portal surface (cool off-white clinical canvas).
  */
 
-export interface RootLayoutProps {
-  children?: string;
-}
+import type { Metadata, Viewport } from "next";
+import type { ReactNode } from "react";
 
-export function renderRootLayoutHtml(props: RootLayoutProps): string {
-  return `<!DOCTYPE html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SIGO-Dental — Sistema Integral de Gestión Odontológica</title>
-  </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
-    ${props.children ?? ""}
-  </body>
-</html>`;
-}
+import "./globals.css";
 
-export default renderRootLayoutHtml;
+export const metadata: Metadata = {
+  title: "SIGO-Dental — Sistema Integral de Gestión Odontológica",
+  description:
+    "Portal clínico y administrativo de SIGO-Dental: ficha única de paciente, odontograma, periodontograma, evolución SOEP, agenda multirrecinto, caja e inventario.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="es">
+      <body className="bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
+        {children}
+      </body>
+    </html>
+  );
+}

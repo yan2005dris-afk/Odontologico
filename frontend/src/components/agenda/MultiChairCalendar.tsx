@@ -123,11 +123,22 @@ export function canTransitionAppointmentStatus(
   return getAllowedStatusTransitions(current).includes(target);
 }
 
-export function renderMultiChairCalendarHtml(props: {
+/**
+ * Props of the multi-chair calendar renderer.
+ *
+ * `transitionControlHtml` is an optional third-party hook: when it is provided
+ * its markup replaces the decorative status select with the real control that
+ * submits the appointment state transition (wi-13 S8). When it is omitted the
+ * renderer emits exactly the same markup as before.
+ */
+export interface MultiChairCalendarRenderProps {
   appointments: CalendarAppointmentDTO[];
   filter: AgendaFilterState;
   overlapError?: string;
-}): string {
+  transitionControlHtml?: (appointment: CalendarAppointmentDTO) => string;
+}
+
+export function renderMultiChairCalendarHtml(props: MultiChairCalendarRenderProps): string {
   const visible = filterAppointments(props.appointments, props.filter);
 
   const alertHtml = props.overlapError
@@ -139,12 +150,17 @@ export function renderMultiChairCalendarHtml(props: {
   const rowsHtml = visible
     .map((apt) => {
       const nextStates = getAllowedStatusTransitions(apt.status);
-      const transitionsHtml = nextStates
-        .map(
-          (st) =>
-            `<option value="${st}">${st}</option>`
-        )
-        .join("");
+      const transitionControlHtml = props.transitionControlHtml
+        ? props.transitionControlHtml(apt)
+        : `<select aria-label="Cambiar estado de cita" class="rounded border border-slate-300 px-2 py-1 text-xs bg-white">
+            <option value="">Actual: ${escapeHtml(apt.status)}</option>
+            ${nextStates
+              .map(
+                (st) =>
+                  `<option value="${st}">${st}</option>`
+              )
+              .join("")}
+          </select>`;
 
       return `<article class="p-4 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-4" data-appointment-id="${escapeHtml(apt.id)}">
         <div>
@@ -158,10 +174,7 @@ export function renderMultiChairCalendarHtml(props: {
         </div>
         <div class="flex items-center gap-2">
           <label class="text-xs text-slate-600">Transición (RF-10):</label>
-          <select aria-label="Cambiar estado de cita" class="rounded border border-slate-300 px-2 py-1 text-xs bg-white">
-            <option value="">Actual: ${escapeHtml(apt.status)}</option>
-            ${transitionsHtml}
-          </select>
+          ${transitionControlHtml}
         </div>
       </article>`;
     })

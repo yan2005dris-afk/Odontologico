@@ -1,0 +1,41 @@
+/**
+ * Global stylesheet of the SIGO-Dental portal (AGENTS.md §3 — Visual Language).
+ *
+ * This file is the Tailwind CSS v4 entrypoint: `@import "tailwindcss"` pulls
+ * the whole preflight + utility engine, and the root layout imports this file
+ * so Next.js emits and links exactly one stylesheet.
+ *
+ * Visual language contract (AGENTS.md §3):
+ *   - Cool off-white (`slate-50`) is the application background; pure white
+ *     (`#FFFFFF`) is reserved for the active clinical canvas (odontogram,
+ *     periodontogram, charts).
+ *   - High-saturation semantic colors are reserved strictly for clinical
+ *     findings (RF-03) and critical medical alerts (RF-02).
+ *   - System/geometric sans for UI clarity; `tabular-nums` for periodontal
+ *     probing depths, tooth numbers (FDI/Universal) and money tables.
+ */
+
+/* prettier-ignore */
+@import "tailwindcss";
+
+@theme static {
+  /* Surfaces: off-white application canvas vs. pure white clinical canvas. */
+  --color-surface-app: #f8fafc;
+  --color-surface-clinical: #ffffff;
+
+  /* Clinical finding catalog (RF-03). Kept in sync with
+   * FINDING_CATALOG_COLORS in src/components/clinical/OdontogramCanvas.tsx. */
+  --color-clinical-caries: #dc2626;
+  --color-clinical-restoration: #2563eb;
+  --color-clinical-endodontics: #7c3aed;
+  --color-clinical-implant: #0d9488;
+  --color-clinical-prosthesis: #475569;
+  --color-clinical-extraction: #1e293b;
+  --color-clinical-sealant: #16a34a;
+
+  /* System/geometric sans for UI clarity; monospace for codes and money. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}

@@ -1,129 +1,333 @@
 /**
- * Patient Clinical Record Workspace Page (wi-11 S1..S5, AGENTS.md §3 Progressive Disclosure).
- * Level 1: StickyPatientHeader with critical medical alerts (RF-02).
- * Level 2: Scoped Clinical Tabs (Odontograma 2D, Periodontograma, Evolución SOEP, Presupuestos, Consentimientos)
- * rendered on pure white (#FFFFFF) active canvas inside cool off-white shell (bg-slate-50).
+ * Patient Clinical Record Workspace Page (wi-13 S7, AGENTS.md §3).
+ *
+ * Server component: the clinical header, the odontogram, the periodontogram
+ * and the SOEP notes are loaded in parallel with `Promise.allSettled`, so a
+ * failing clinical section never breaks the whole record. Each tab shows its
+ * own empty or error state, and the tabs without a read endpoint declare it.
  */
 
+import { redirect } from "next/navigation";
 import { renderStickyPatientHeaderHtml } from "../../../../components/patients/StickyPatientHeader.tsx";
+import { renderOdontogramCanvasHtml } from "../../../../components/clinical/OdontogramCanvas.tsx";
+import { renderPeriodontogramGridHtml } from "../../../../components/clinical/PeriodontogramGrid.tsx";
+import { renderSoepEvolutionTimelineHtml } from "../../../../components/clinical/SoepEvolutionTimeline.tsx";
+import { GatewayError, createGatewayServerClient } from "../../../../lib/gateway-server.ts";
 import {
-  renderOdontogramCanvasHtml,
-  type DentalNotation,
-  type OdontogramFindingDTO,
-} from "../../../../components/clinical/OdontogramCanvas.tsx";
-import {
-  renderPeriodontogramGridHtml,
-  type PeriodontogramToothDTO,
-} from "../../../../components/clinical/PeriodontogramGrid.tsx";
-import {
-  renderSoepEvolutionTimelineHtml,
-  type SoepNoteDTO,
-} from "../../../../components/clinical/SoepEvolutionTimeline.tsx";
-import {
-  renderInformedConsentSheetHtml,
-  type ConsentSignMode,
-} from "../../../../components/clinical/InformedConsentSheet.tsx";
-import {
-  renderTreatmentPlanWorkspaceHtml,
-  type TreatmentPlanDTO,
-} from "../../../../components/treatments/TreatmentPlanWorkspace.tsx";
-import type { PatientSummaryDTO } from "../../../../lib/session-idle-guard.ts";
+  buildPatientDetailModel,
+  isSessionExpiredError,
+  type PatientSectionStatus,
+} from "../../../../lib/portal-views.ts";
+import { requirePortalSession } from "../../../../lib/session.ts";
 
-export type ClinicalWorkspaceTab =
-  | "ODONTOGRAMA_2D"
-  | "PERIODONTOGRAMA"
-  | "EVOLUCION_SOEP"
-  | "PRESUPUESTOS"
-  | "CONSENTIMIENTOS";
+type PortalSearchParams = Record<string, string | string[] | undefined>;
 
-export interface PatientClinicalWorkspacePageProps {
-  patient: PatientSummaryDTO;
-  activeTab: ClinicalWorkspaceTab;
-  notation?: DentalNotation;
-  odontogramFindings?: OdontogramFindingDTO[];
-  periodontogramTeeth?: PeriodontogramToothDTO[];
-  soepNotes?: SoepNoteDTO[];
-  treatmentPlan?: TreatmentPlanDTO;
-  selectedPlanItemIds?: string[];
-  consentSheet?: {
-    isOpen: boolean;
-    consentId: string;
-    procedureTitle: string;
-    mode: ConsentSignMode;
-    svgStrokes: string[];
-    otpCode: string;
-  };
+const CLINICAL_TABS = [
+  { id: "odontogram", label: "Odontograma 2D" },
+  { id: "periodontogram", label: "Periodontograma" },
+  { id: "soep", label: "Evolución SOEP" },
+  { id: "budgets", label: "Presupuestos" },
+  { id: "consents", label: "Consentimientos" },
+] as const;
+
+type ClinicalTabId = (typeof CLINICAL_TABS)[number]["id"];
+
+const STATUS_LABELS: Record<PatientSectionStatus, string> = {
+  ready: "Listo",
+  empty: "Sin datos",
+  error: "Error",
+  unavailable: "No disponible",
+};
+
+/** Reads a single query parameter; repeated parameters are ignored. */
+function readParam(params: PortalSearchParams, key: string): string {
+  const value = params[key];
+  return typeof value === "string" ? value : "";
 }
 
-export const CLINICAL_WORKSPACE_TABS: Array<{ id: ClinicalWorkspaceTab; label: string }> = [
-  { id: "ODONTOGRAMA_2D", label: "Odontograma 2D" },
-  { id: "PERIODONTOGRAMA", label: "Periodontograma" },
-  { id: "EVOLUCION_SOEP", label: "Evolución SOEP" },
-  { id: "PRESUPUESTOS", label: "Presupuestos" },
-  { id: "CONSENTIMIENTOS", label: "Consentimientos" },
-];
+/** Resolves the active clinical tab, defaulting to the odontogram. */
+function resolveActiveTab(params: PortalSearchParams): ClinicalTabId {
+  const requested = readParam(params, "tab");
+  const known = CLINICAL_TABS.find((tab) => tab.id === requested);
+  return known ? known.id : "odontogram";
+}
 
-export function renderPatientClinicalWorkspacePageHtml(
-  props: PatientClinicalWorkspacePageProps
-): string {
-  const tabsHtml = CLINICAL_WORKSPACE_TABS.map(
-    (tab) =>
-      `<button type="button" role="tab" aria-selected="${
-        props.activeTab === tab.id
-      }" data-tab="${tab.id}" class="min-h-[44px] px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 ${
-        props.activeTab === tab.id
-          ? "border-blue-600 text-blue-700 bg-white"
-          : "border-transparent text-slate-600 hover:text-slate-900"
-      }">${tab.label}</button>`
-  ).join("");
+export default async function PatientClinicalRecordPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<PortalSearchParams>;
+}) {
+  const session = await requirePortalSession();
+  const client = createGatewayServerClient({ accessToken: session.accessToken });
+  const { id } = await params;
+  const query = await searchParams;
 
-  let activeWorkspaceHtml = "";
-  if (props.activeTab === "ODONTOGRAMA_2D") {
-    activeWorkspaceHtml = renderOdontogramCanvasHtml({
-      patientId: props.patient.id,
-      notation: props.notation ?? "FDI",
-      findings: props.odontogramFindings ?? [],
-    });
-  } else if (props.activeTab === "PERIODONTOGRAMA") {
-    activeWorkspaceHtml = renderPeriodontogramGridHtml({
-      patientId: props.patient.id,
-      teethData: props.periodontogramTeeth ?? [],
-    });
-  } else if (props.activeTab === "EVOLUCION_SOEP") {
-    activeWorkspaceHtml = renderSoepEvolutionTimelineHtml({
-      patientId: props.patient.id,
-      notes: props.soepNotes ?? [],
-    });
-  } else if (props.activeTab === "PRESUPUESTOS" && props.treatmentPlan) {
-    activeWorkspaceHtml = renderTreatmentPlanWorkspaceHtml({
-      patientId: props.patient.id,
-      plan: props.treatmentPlan,
-      selectedItemIds: props.selectedPlanItemIds ?? [],
-    });
+  const [headerResult, odontogramResult, periodontogramResult, soepResult] =
+    await Promise.allSettled([
+      client.getPatientHeader(id),
+      client.getOdontogram(id),
+      client.getPeriodontogram(id),
+      client.getSoepNotes(id),
+    ]);
+
+  const headerError =
+    headerResult.status === "rejected" ? headerResult.reason : undefined;
+
+  // An expired workstation session is not a recoverable page state (RNF-05).
+  if (isSessionExpiredError(headerError)) {
+    redirect("/login?reason=idle_timeout");
+  }
+  // A missing patient is a "not found" state, never a crash (S7).
+  const patientNotFound =
+    headerError instanceof GatewayError && headerError.status === 404;
+
+  const model = buildPatientDetailModel({
+    patient: headerResult.status === "fulfilled" ? headerResult.value : null,
+    odontogram:
+      odontogramResult.status === "fulfilled" ? odontogramResult.value : undefined,
+    periodontogram:
+      periodontogramResult.status === "fulfilled"
+        ? { teeth: periodontogramResult.value }
+        : undefined,
+    soep: soepResult.status === "fulfilled" ? { notes: soepResult.value } : undefined,
+    errors: {
+      patient: patientNotFound ? undefined : headerError,
+      odontogram:
+        odontogramResult.status === "rejected" ? odontogramResult.reason : undefined,
+      periodontogram:
+        periodontogramResult.status === "rejected"
+          ? periodontogramResult.reason
+          : undefined,
+      soep: soepResult.status === "rejected" ? soepResult.reason : undefined,
+    },
+  });
+
+  if (model.status === "not-found") {
+    return (
+      <div className="p-6">
+        <section
+          role="status"
+          data-state="not-found"
+          data-error-code={model.error?.code ?? "PATIENT_NOT_FOUND"}
+          className="p-6 rounded-lg border border-dashed border-slate-300 bg-white text-center space-y-2"
+        >
+          <h1 className="text-sm font-bold text-slate-900">Paciente no encontrado</h1>
+          <p className="text-xs text-slate-600">
+            No existe una ficha clínica con el identificador solicitado ({id}).
+          </p>
+          <a href="/patients" className="inline-block text-xs font-semibold text-blue-700 underline">
+            Volver al directorio de pacientes
+          </a>
+        </section>
+      </div>
+    );
   }
 
-  const consentSheetHtml = props.consentSheet
-    ? renderInformedConsentSheetHtml({
-        isOpen: props.consentSheet.isOpen,
-        consentId: props.consentSheet.consentId,
-        patientName: props.patient.fullName,
-        procedureTitle: props.consentSheet.procedureTitle,
-        mode: props.consentSheet.mode,
-        svgStrokes: props.consentSheet.svgStrokes,
-        otpCode: props.consentSheet.otpCode,
-      })
-    : "";
+  if (model.status === "error" || !model.patient) {
+    return (
+      <div className="p-6">
+        <section
+          role="alert"
+          data-state="error"
+          data-error-code={model.error?.code ?? "UNKNOWN_ERROR"}
+          className="p-4 rounded-lg border border-red-300 bg-red-50 space-y-2"
+        >
+          <h1 className="text-sm font-bold text-red-900">
+            No se pudo cargar la ficha clínica
+          </h1>
+          <p className="text-xs text-red-800">
+            {model.error?.message ?? "No se pudo obtener la información solicitada."} (
+            {model.error?.code ?? "UNKNOWN_ERROR"})
+          </p>
+          {model.error?.retryable ? (
+            <a
+              href={`/patients/${encodeURIComponent(id)}`}
+              className="inline-block text-xs font-semibold text-red-900 underline"
+            >
+              Reintentar
+            </a>
+          ) : null}
+        </section>
+      </div>
+    );
+  }
 
-  return `<div class="min-h-screen bg-slate-50 flex flex-col">
-    ${renderStickyPatientHeaderHtml(props.patient)}
-    <nav role="tablist" aria-label="Espacios de trabajo clínico" class="px-6 pt-3 bg-slate-100 border-b border-slate-200 flex flex-wrap gap-2">
-      ${tabsHtml}
-    </nav>
-    <div class="p-6 flex-1">
-      ${activeWorkspaceHtml}
+  const patient = model.patient;
+  const activeTab = resolveActiveTab(query);
+  const patientId = patient.id !== "" ? patient.id : id;
+
+  const sectionOf = (tabId: ClinicalTabId) =>
+    model.sections.find((section) => section.id === tabId);
+
+  const unmappedNoticeHtml =
+    model.odontogram.unmappedCount > 0 ? (
+      <p
+        data-unmapped-count={model.odontogram.unmappedCount}
+        className="text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded px-3 py-2"
+      >
+        {model.odontogram.unmappedCount} hallazgos con un catálogo clínico desconocido no
+        pudieron representarse en el odontograma.
+      </p>
+    ) : null;
+
+  return (
+    <div className="min-h-full bg-slate-50 flex flex-col">
+      <div dangerouslySetInnerHTML={{ __html: renderStickyPatientHeaderHtml(patient) }} />
+
+      <nav
+        role="tablist"
+        aria-label="Espacios de trabajo clínico"
+        className="px-6 pt-3 bg-slate-100 border-b border-slate-200 flex flex-wrap gap-2"
+      >
+        {CLINICAL_TABS.map((tab) => {
+          const section = sectionOf(tab.id);
+          const status: PatientSectionStatus = section?.status ?? "unavailable";
+          const isActive = tab.id === activeTab;
+
+          return (
+            <a
+              key={tab.id}
+              role="tab"
+              aria-selected={isActive}
+              href={`/patients/${encodeURIComponent(patientId)}?tab=${tab.id}`}
+              className={`min-h-[44px] px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 flex items-center gap-2 ${
+                isActive
+                  ? "border-blue-600 text-blue-700 bg-white"
+                  : "border-transparent text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                {STATUS_LABELS[status]}
+              </span>
+            </a>
+          );
+        })}
+      </nav>
+
+      <div className="p-6 flex-1 space-y-4">
+        {activeTab === "odontogram" ? (
+          <section aria-label="Odontograma 2D" className="space-y-3">
+            {sectionOf("odontogram")?.status === "error" ? (
+              <div
+                role="alert"
+                data-state="error"
+                className="p-3 rounded border border-red-300 bg-red-50 text-xs text-red-800"
+              >
+                {sectionOf("odontogram")?.note}
+              </div>
+            ) : null}
+            {sectionOf("odontogram")?.status === "empty" ? (
+              <div
+                data-state="empty"
+                className="p-4 rounded-lg border border-dashed border-slate-300 bg-white text-xs text-slate-600"
+              >
+                {sectionOf("odontogram")?.note}
+              </div>
+            ) : null}
+            {sectionOf("odontogram")?.status === "ready" ? (
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: renderOdontogramCanvasHtml({
+                    patientId,
+                    notation: "FDI",
+                    findings: model.odontogram.findings,
+                  }),
+                }}
+              />
+            ) : null}
+            {unmappedNoticeHtml}
+          </section>
+        ) : null}
+
+        {activeTab === "periodontogram" ? (
+          <section aria-label="Periodontograma" className="space-y-3">
+            {sectionOf("periodontogram")?.status === "error" ? (
+              <div
+                role="alert"
+                data-state="error"
+                className="p-3 rounded border border-red-300 bg-red-50 text-xs text-red-800"
+              >
+                {sectionOf("periodontogram")?.note}
+              </div>
+            ) : null}
+            {sectionOf("periodontogram")?.status === "empty" ? (
+              <div
+                data-state="empty"
+                className="p-4 rounded-lg border border-dashed border-slate-300 bg-white text-xs text-slate-600"
+              >
+                {sectionOf("periodontogram")?.note}
+              </div>
+            ) : null}
+            {sectionOf("periodontogram")?.status === "ready" ? (
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: renderPeriodontogramGridHtml({
+                    patientId,
+                    teethData: model.periodontogram.teeth,
+                  }),
+                }}
+              />
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === "soep" ? (
+          <section aria-label="Evolución SOEP" className="space-y-3">
+            {sectionOf("soep")?.status === "error" ? (
+              <div
+                role="alert"
+                data-state="error"
+                className="p-3 rounded border border-red-300 bg-red-50 text-xs text-red-800"
+              >
+                {sectionOf("soep")?.note}
+              </div>
+            ) : null}
+            {sectionOf("soep")?.status === "empty" ? (
+              <div
+                data-state="empty"
+                className="p-4 rounded-lg border border-dashed border-slate-300 bg-white text-xs text-slate-600"
+              >
+                {sectionOf("soep")?.note}
+              </div>
+            ) : null}
+            {sectionOf("soep")?.status === "ready" ? (
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: renderSoepEvolutionTimelineHtml({
+                    patientId,
+                    notes: model.soep.notes,
+                  }),
+                }}
+              />
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === "budgets" ? (
+          <section aria-label="Presupuestos" className="space-y-3">
+            <div
+              data-state="unavailable"
+              className="p-4 rounded-lg border border-dashed border-slate-300 bg-white text-xs text-slate-600"
+            >
+              {sectionOf("budgets")?.note}
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "consents" ? (
+          <section aria-label="Consentimientos" className="space-y-3">
+            <div
+              data-state="unavailable"
+              className="p-4 rounded-lg border border-dashed border-slate-300 bg-white text-xs text-slate-600"
+            >
+              {sectionOf("consents")?.note}
+            </div>
+          </section>
+        ) : null}
+      </div>
     </div>
-    ${consentSheetHtml}
-  </div>`;
+  );
 }
-
-export default renderPatientClinicalWorkspacePageHtml;

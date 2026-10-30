@@ -5,6 +5,7 @@ import {
   createSessionIdleGuard,
   validateTotpCode,
   getAllowedNavigationModules,
+  type CreatePatientInput,
 } from "./session-idle-guard.ts";
 
 describe("wi-10 S1 — Session Idle Guard (15-min timeout RNF-05) & RBAC Navigation", () => {
@@ -107,5 +108,41 @@ describe("wi-10 S1 — Session Idle Guard (15-min timeout RNF-05) & RBAC Navigat
 
     const auditorModules = getAllowedNavigationModules("auditor").map((m) => m.id);
     assert.deepEqual(auditorModules, ["patients", "billing-inventory", "reports"]);
+  });
+});
+
+describe("wi-13 S6 — patient intake payload contract", () => {
+  it("keeps sex and emergency contact optional so existing registrations stay valid", () => {
+    const legacyDraft: CreatePatientInput = {
+      documentType: "DNI",
+      documentNumber: "28999888",
+      fullName: "Roberto Carlos Pérez",
+      birthDate: "1985-07-20",
+      phone: "+5491122334455",
+      criticalAlerts: [],
+    };
+
+    assert.equal(legacyDraft.sex, undefined);
+    assert.equal(legacyDraft.emergencyContact, undefined);
+  });
+
+  it("carries the sex catalog and the emergency contact required by the clinical API", () => {
+    const draft: CreatePatientInput = {
+      documentType: "DNI",
+      documentNumber: "28999888",
+      fullName: "Roberto Carlos Pérez",
+      birthDate: "1985-07-20",
+      sex: "M",
+      phone: "+5491122334455",
+      emergencyContact: {
+        fullName: "Ana Pérez",
+        phone: "+5491100001111",
+        relationship: "Pareja",
+      },
+      criticalAlerts: [],
+    };
+
+    assert.equal(draft.sex, "M");
+    assert.equal(draft.emergencyContact?.relationship, "Pareja");
   });
 });

@@ -6,6 +6,9 @@ import (
 	"os"
 	"time"
 
+	auditpg "github.com/sigo-dental/billing-stock/internal/audit/adapters/postgres"
+	auditapp "github.com/sigo-dental/billing-stock/internal/audit/application"
+
 	"github.com/sigo-dental/billing-stock/internal/billing/adapters/fiscal"
 	billinghttp "github.com/sigo-dental/billing-stock/internal/billing/adapters/http"
 	billingpg "github.com/sigo-dental/billing-stock/internal/billing/adapters/postgres"
@@ -29,23 +32,27 @@ func buildMux() *http.ServeMux {
 		_, _ = w.Write([]byte(`{"status":"ok","service":"billing-stock"}`))
 	})
 
+	// Audit trail (RNF-06) shared by every context of the service.
+	auditRepo := auditpg.NewAuditRepository()
+	auditSvc := auditapp.NewAuditService(auditRepo, nil, nil)
+
 	// Billing context (POS, Electronic Invoicing RF-12, Blind Cash Close RN-02)
 	billingRepo := billingpg.NewInMemoryBillingRepository()
 	taxClient := fiscal.NewTaxAuthorityClient()
 	payGateway := fiscal.NewPaymentGatewayClient()
-	billingSvc := billingapp.NewBillingService(billingRepo, taxClient, payGateway)
+	billingSvc := billingapp.NewBillingService(billingRepo, taxClient, payGateway, auditSvc)
 	billingHandler := billinghttp.NewBillingHandler(billingSvc)
 	billingHandler.RegisterRoutes(mux)
 
 	// Settlements context (Dentist Commissions RF-13)
 	settlementRepo := settlementpg.NewInMemorySettlementRepository()
-	settlementSvc := settlementapp.NewSettlementService(settlementRepo)
+	settlementSvc := settlementapp.NewSettlementService(settlementRepo, auditSvc)
 	settlementHandler := settlementhttp.NewSettlementHandler(settlementSvc)
 	settlementHandler.RegisterRoutes(mux)
 
 	// Inventory context (Clinical Supplies & Automatic Deduction RF-14)
 	inventoryRepo := inventorypg.NewInMemoryInventoryRepository()
-	inventorySvc := inventoryapp.NewInventoryService(inventoryRepo)
+	inventorySvc := inventoryapp.NewInventoryService(inventoryRepo, auditSvc)
 	inventoryHandler := inventoryhttp.NewInventoryHandler(inventorySvc)
 	inventoryHandler.RegisterRoutes(mux)
 

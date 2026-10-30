@@ -18,7 +18,7 @@ func newTestBillingServer() *http.ServeMux {
 	repo := postgres.NewInMemoryBillingRepository()
 	taxClient := fiscal.NewTaxAuthorityClient()
 	gateway := fiscal.NewPaymentGatewayClient()
-	svc := application.NewBillingService(repo, taxClient, gateway)
+	svc := application.NewBillingService(repo, taxClient, gateway, nil)
 	handler := billinghttp.NewBillingHandler(svc)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)

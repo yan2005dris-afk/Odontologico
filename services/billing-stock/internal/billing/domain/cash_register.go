@@ -216,6 +216,62 @@ func (cr *CashRegister) ExecuteBlindClose(declaredCashCents int64, denominations
 	}, nil
 }
 
+// CashRegisterListItemView is the DTO of the cash register listing.
+//
+// RN-02 is enforced in two layers, and this DTO enforces both:
+//  1. While the register is OPEN the theoretical total is absent for every
+//     role (including receptionist): the physical count has not been declared
+//     yet, so there is nothing to reconcile against.
+//  2. Once the register is CLOSED the theoretical total and the discrepancy
+//     belong to the reconciliation and stay with auditor/admin only. The
+//     discrepancy is declared - theoretical, so exposing it would reveal the
+//     theoretical by subtraction.
+type CashRegisterListItemView struct {
+	ID               string     `json:"id"`
+	ClinicID         string     `json:"clinic_id"`
+	OpenedAt         time.Time  `json:"opened_at"`
+	ClosedAt         *time.Time `json:"closed_at,omitempty"`
+	Status           string     `json:"status"`
+	DeclaredCents    *int64     `json:"declared_cents,omitempty"`
+	TheoreticalCents *int64     `json:"theoretical_cents,omitempty"`
+	DiscrepancyCents *int64     `json:"discrepancy_cents,omitempty"`
+}
+
+// ToListItemView maps the register to the listing DTO.
+//
+// canSeeReconciliation tells whether the actor belongs to the reconciliation
+// roles (auditor/admin); only those see the theoretical total and the
+// discrepancy of a closed register (RN-02).
+func (cr *CashRegister) ToListItemView(canSeeReconciliation bool) CashRegisterListItemView {
+	view := CashRegisterListItemView{
+		ID:       cr.ID,
+		ClinicID: cr.ClinicID,
+		OpenedAt: cr.OpenedAt,
+		Status:   cr.Status,
+	}
+	if cr.ClosedAt != nil {
+		closedAt := *cr.ClosedAt
+		view.ClosedAt = &closedAt
+	}
+	if cr.DeclaredCashCents != nil {
+		declared := *cr.DeclaredCashCents
+		view.DeclaredCents = &declared
+	}
+	// RN-02: the theoretical total is only reconciled after the blind close,
+	// and only by the roles allowed to reconcile it.
+	if cr.Status == CashRegisterStatusClosed && canSeeReconciliation {
+		if cr.TheoreticalCashCents != nil {
+			theoretical := *cr.TheoreticalCashCents
+			view.TheoreticalCents = &theoretical
+		}
+		if cr.DiscrepancyCents != nil {
+			discrepancy := *cr.DiscrepancyCents
+			view.DiscrepancyCents = &discrepancy
+		}
+	}
+	return view
+}
+
 func (cr *CashRegister) ToAuditReportView() (*CashRegisterAuditReportView, error) {
 	if cr.Status != CashRegisterStatusClosed || cr.TheoreticalCashCents == nil || cr.DeclaredCashCents == nil || cr.DiscrepancyCents == nil || cr.ClosedAt == nil {
 		return nil, ErrBlindCashCloseEnforced

@@ -13,6 +13,12 @@ const (
 	PaymentMethodDebitCard       = "DEBIT_CARD"
 	PaymentMethodBankTransfer    = "BANK_TRANSFER"
 	PaymentMethodDentalInsurance = "DENTAL_INSURANCE"
+
+	InvoiceFiscalStatusPending    = "PENDING"
+	InvoiceFiscalStatusAuthorized = "AUTHORIZED"
+
+	// InvoicePaymentMethodMixed marks an invoice paid with more than one method.
+	InvoicePaymentMethodMixed = "MIXED"
 )
 
 var (
@@ -211,4 +217,49 @@ func (inv *Invoice) TotalCashPaymentCents() int64 {
 		}
 	}
 	return cash
+}
+
+// FiscalStatus reports the fiscal state of the invoice: an invoice is AUTHORIZED once
+// the tax authority stamped it, otherwise it is still PENDING.
+func (inv *Invoice) FiscalStatus() string {
+	if strings.TrimSpace(inv.FiscalAuthorizationCode) != "" {
+		return InvoiceFiscalStatusAuthorized
+	}
+	return InvoiceFiscalStatusPending
+}
+
+// PaymentMethod reports the payment method of the invoice. An invoice paid with more
+// than one method is reported as MIXED.
+func (inv *Invoice) PaymentMethod() string {
+	if len(inv.Payments) == 0 {
+		return ""
+	}
+	method := inv.Payments[0].Method
+	for _, p := range inv.Payments[1:] {
+		if p.Method != method {
+			return InvoicePaymentMethodMixed
+		}
+	}
+	return method
+}
+
+// InvoiceListItemView is the DTO of the invoice listing.
+type InvoiceListItemView struct {
+	ID            string    `json:"id"`
+	PatientID     string    `json:"patient_id"`
+	IssuedAt      time.Time `json:"issued_at"`
+	TotalCents    int64     `json:"total_cents"`
+	FiscalStatus  string    `json:"fiscal_status"`
+	PaymentMethod string    `json:"payment_method"`
+}
+
+func (inv *Invoice) ToListItemView() InvoiceListItemView {
+	return InvoiceListItemView{
+		ID:            inv.ID,
+		PatientID:     inv.PatientID,
+		IssuedAt:      inv.CreatedAt,
+		TotalCents:    inv.TotalCents,
+		FiscalStatus:  inv.FiscalStatus(),
+		PaymentMethod: inv.PaymentMethod(),
+	}
 }

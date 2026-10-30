@@ -13,7 +13,7 @@ import (
 func TestInventoryService_AtomicDeductionAndIdempotency_S3_S4(t *testing.T) {
 	ctx := context.Background()
 	repo := postgres.NewInMemoryInventoryRepository()
-	svc := application.NewInventoryService(repo)
+	svc := application.NewInventoryService(repo, nil)
 
 	adminActor := application.ActorContext{
 		ActorID:     "admin-01",
@@ -144,4 +144,3 @@ func TestInventoryService_AtomicDeductionAndIdempotency_S3_S4(t *testing.T) {
 		t.Fatalf("expected ErrInvalidSupplyInput, got %v", err)
 	}
 }
-

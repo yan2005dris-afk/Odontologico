@@ -13,7 +13,7 @@ import (
 func TestSettlementService_GenerateAndPreventDuplicate_S1_S2(t *testing.T) {
 	ctx := context.Background()
 	repo := postgres.NewInMemorySettlementRepository()
-	svc := application.NewSettlementService(repo)
+	svc := application.NewSettlementService(repo, nil)
 
 	adminActor := application.ActorContext{
 		ActorID:     "admin-01",
@@ -124,4 +124,3 @@ func TestSettlementService_GenerateAndPreventDuplicate_S1_S2(t *testing.T) {
 		t.Fatalf("expected auto-generated settlement ID, got err=%v", err)
 	}
 }
-

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/sigo-dental/billing-stock/internal/inventory/application"
@@ -20,7 +22,9 @@ func NewInventoryHandler(service *application.InventoryService) *InventoryHandle
 
 func (h *InventoryHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/inventory/items", h.handleUpsertSupply)
+	mux.HandleFunc("GET /api/v1/inventory/items", h.handleListSupplies)
 	mux.HandleFunc("PUT /api/v1/inventory/recipes/{procedureCode}", h.handleSaveRecipe)
+	mux.HandleFunc("GET /api/v1/inventory/recipes", h.handleListRecipes)
 	mux.HandleFunc("POST /api/v1/inventory/deductions/procedure-completed", h.handleDeductProcedure)
 }
 
@@ -41,6 +45,20 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// parseLimitOffset reads the pagination parameters. Unparseable values fall back to the
+// defaults applied by the service (limit=50 with a hard cap of 200, offset=0).
+func parseLimitOffset(query url.Values) (int, int) {
+	limit, _ := strconv.Atoi(strings.TrimSpace(query.Get("limit")))
+	offset, _ := strconv.Atoi(strings.TrimSpace(query.Get("offset")))
+	return limit, offset
+}
+
+// parseBoolParam reads a boolean flag. An absent or unparseable value is false.
+func parseBoolParam(raw string) bool {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	return value == "true" || value == "1"
 }
 
 func writeError(w http.ResponseWriter, err error) {
@@ -102,4 +120,46 @@ func (h *InventoryHandler) handleDeductProcedure(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleListSupplies answers GET /api/v1/inventory/items with the {items,total} contract.
+// Filters: clinic_id, q, low_stock, limit, offset.
+func (h *InventoryHandler) handleListSupplies(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	filter := application.SupplyFilter{
+		ClinicID:     strings.TrimSpace(query.Get("clinic_id")),
+		Query:        strings.TrimSpace(query.Get("q")),
+		LowStockOnly: parseBoolParam(query.Get("low_stock")),
+	}
+	filter.Limit, filter.Offset = parseLimitOffset(query)
+
+	items, total, err := h.service.ListSupplies(r.Context(), extractActor(r), filter)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
+}
+
+// handleListRecipes answers GET /api/v1/inventory/recipes with the {items,total}
+// contract. Filters: procedure_code, limit, offset.
+func (h *InventoryHandler) handleListRecipes(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	filter := application.RecipeFilter{
+		ProcedureCode: strings.TrimSpace(query.Get("procedure_code")),
+	}
+	filter.Limit, filter.Offset = parseLimitOffset(query)
+
+	items, total, err := h.service.ListRecipes(r.Context(), extractActor(r), filter)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": total,
+	})
 }

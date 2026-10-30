@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/sigo-dental/billing-stock/internal/billing/application"
@@ -103,4 +104,90 @@ func (r *InMemoryBillingRepository) AppendAuditLog(_ context.Context, entry appl
 	defer r.mu.Unlock()
 	r.auditLogs = append(r.auditLogs, entry)
 	return nil
+}
+
+func cloneInvoice(src *domain.Invoice) *domain.Invoice {
+	if src == nil {
+		return nil
+	}
+	cp := *src
+	cp.Items = append([]domain.InvoiceItem(nil), src.Items...)
+	cp.Payments = append([]domain.InvoicePayment(nil), src.Payments...)
+	return &cp
+}
+
+// ListInvoices returns the invoices matching the filter ordered by creation date
+// descending with the ID as tiebreaker, so pagination neither duplicates nor skips rows.
+func (r *InMemoryBillingRepository) ListInvoices(_ context.Context, filter application.InvoiceFilter) ([]domain.Invoice, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	matched := make([]domain.Invoice, 0, len(r.invoices))
+	for _, inv := range r.invoices {
+		if filter.PatientID != "" && inv.PatientID != filter.PatientID {
+			continue
+		}
+		if filter.FiscalStatus != "" && inv.FiscalStatus() != filter.FiscalStatus {
+			continue
+		}
+		if filter.From != nil && inv.CreatedAt.Before(*filter.From) {
+			continue
+		}
+		if filter.To != nil && inv.CreatedAt.After(*filter.To) {
+			continue
+		}
+		matched = append(matched, *cloneInvoice(inv))
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].ID < matched[j].ID
+	})
+
+	total := len(matched)
+	limit, offset := application.NormalizePage(filter.Limit, filter.Offset)
+	return page(matched, limit, offset), total, nil
+}
+
+// ListCashRegisters returns the cash registers matching the filter ordered by opening
+// date descending with the ID as tiebreaker.
+func (r *InMemoryBillingRepository) ListCashRegisters(_ context.Context, filter application.CashRegisterFilter) ([]domain.CashRegister, int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	matched := make([]domain.CashRegister, 0, len(r.cashRegisters))
+	for _, reg := range r.cashRegisters {
+		if filter.ClinicID != "" && reg.ClinicID != filter.ClinicID {
+			continue
+		}
+		if filter.Status != "" && reg.Status != filter.Status {
+			continue
+		}
+		matched = append(matched, *cloneCashRegister(reg))
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].OpenedAt.Equal(matched[j].OpenedAt) {
+			return matched[i].OpenedAt.After(matched[j].OpenedAt)
+		}
+		return matched[i].ID < matched[j].ID
+	})
+
+	total := len(matched)
+	limit, offset := application.NormalizePage(filter.Limit, filter.Offset)
+	return page(matched, limit, offset), total, nil
+}
+
+// page returns the requested window of an already ordered slice.
+func page[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end]
 }

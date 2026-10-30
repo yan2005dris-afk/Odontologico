@@ -3,13 +3,12 @@
  * Collapsible left sidebar filtered by RBAC role, slate-50 surface, and 15-min idle session banner.
  */
 
+import { DEFAULT_IDLE_TIMEOUT_MS, escapeHtml } from "../../lib/session-idle-guard.ts";
 import {
-  DEFAULT_IDLE_TIMEOUT_MS,
-  escapeHtml,
   getAllowedNavigationModules,
-  type NavigationModuleItem,
-  type UserRole,
-} from "../../lib/session-idle-guard.ts";
+  type NavItem,
+} from "../../lib/nav-config.ts";
+import type { UserRole } from "../../lib/roles.ts";
 
 export interface AppShellProps {
   userRole: UserRole;
@@ -22,7 +21,7 @@ export interface AppShellProps {
 
 export interface AppShellViewModel {
   role: UserRole;
-  allowedModules: NavigationModuleItem[];
+  allowedModules: NavItem[];
   sidebarCollapsed: boolean;
   surfaceClass: string;
   sidebarWidthClass: string;

@@ -16,7 +16,6 @@ import type {
   AppointmentStatus,
   CriticalAlertDTO,
   PatientSummaryDTO,
-  UserRole,
 } from "./session-idle-guard.ts";
 import type { CalendarAppointmentDTO } from "../components/agenda/MultiChairCalendar.tsx";
 import type {
@@ -173,18 +172,6 @@ export interface VerifyMfaWireResponse {
 // ---------------------------------------------------------------------------
 // Pure mapping helpers (wire -> portal DTOs).
 // ---------------------------------------------------------------------------
-
-const USER_ROLES: UserRole[] = [
-  "admin",
-  "receptionist",
-  "dentist",
-  "assistant",
-  "auditor",
-];
-
-export function isUserRole(value: unknown): value is UserRole {
-  return typeof value === "string" && (USER_ROLES as string[]).includes(value);
-}
 
 const APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "PROGRAMADO",

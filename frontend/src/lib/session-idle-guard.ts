@@ -1,8 +1,13 @@
 /**
- * 15-Minute Workstation Idle Session Guard, RBAC Navigation Filter & Shared DTOs (RNF-05, RNF-07, wi-10 S1).
+ * 15-Minute Workstation Idle Session Guard & Shared DTOs (RNF-05, RNF-07, wi-10 S1).
+ *
+ * The RBAC navigation filter that used to live here moved to `nav-config.ts`
+ * in wi-14: the role vocabulary is owned by `roles.ts` and the navigation
+ * tree by `nav-config.ts`, so this module keeps only the idle-timeout logic
+ * and the clinical DTOs shared across the portal.
  */
 
-export type UserRole = "admin" | "receptionist" | "dentist" | "assistant" | "auditor";
+export type { UserRole } from "./roles.ts";
 
 export interface CriticalAlertDTO {
   code: string;
@@ -177,42 +182,4 @@ export function validateTotpCode(code: string): { valid: boolean; error?: string
     };
   }
   return { valid: true };
-}
-
-export interface NavigationModuleItem {
-  id: "agenda" | "patients" | "billing-inventory" | "reports";
-  label: string;
-  href: string;
-  allowedRoles: UserRole[];
-}
-
-export const PRIMARY_NAVIGATION_MODULES: NavigationModuleItem[] = [
-  {
-    id: "agenda",
-    label: "Agenda",
-    href: "/agenda",
-    allowedRoles: ["admin", "receptionist", "dentist", "assistant"],
-  },
-  {
-    id: "patients",
-    label: "Pacientes",
-    href: "/patients",
-    allowedRoles: ["admin", "receptionist", "dentist", "assistant", "auditor"],
-  },
-  {
-    id: "billing-inventory",
-    label: "Caja e Inventario",
-    href: "/billing",
-    allowedRoles: ["admin", "receptionist", "assistant", "auditor"],
-  },
-  {
-    id: "reports",
-    label: "Reportes",
-    href: "/settlements",
-    allowedRoles: ["admin", "dentist", "auditor"],
-  },
-];
-
-export function getAllowedNavigationModules(role: UserRole): NavigationModuleItem[] {
-  return PRIMARY_NAVIGATION_MODULES.filter((mod) => mod.allowedRoles.includes(role));
 }

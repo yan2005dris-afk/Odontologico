@@ -5,7 +5,7 @@
  * read this cookie and call the API Gateway over the internal network.
  */
 
-import type { UserRole } from "./session-idle-guard.ts";
+import { isUserRole, type UserRole } from "./roles.ts";
 
 export const SESSION_COOKIE_NAME = "sigo_session";
 
@@ -45,16 +45,6 @@ export function buildSessionCookieAttributes(
     maxAge: Math.max(0, Math.floor(maxAgeMs / 1000)),
     secure,
   };
-}
-
-function isUserRole(value: unknown): value is UserRole {
-  return (
-    value === "admin" ||
-    value === "receptionist" ||
-    value === "dentist" ||
-    value === "assistant" ||
-    value === "auditor"
-  );
 }
 
 /**

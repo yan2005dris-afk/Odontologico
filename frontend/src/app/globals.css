@@ -13,10 +13,21 @@
  *     findings (RF-03) and critical medical alerts (RF-02).
  *   - System/geometric sans for UI clarity; `tabular-nums` for periodontal
  *     probing depths, tooth numbers (FDI/Universal) and money tables.
+ *
+ * The `shadcn/ui` semantic layer below is derived **entirely from the slate
+ * scale** so the new `shadcn-admin` shell and the pre-existing clinical
+ * screens read as one system. The scaffold shipped a neutral (achromatic)
+ * palette and a Google-hosted `Geist` webfont; both were rejected: the first
+ * broke the slate contract of AGENTS.md §3, and the second turned a
+ * build-time network download into a hard dependency of the container image.
  */
 
 /* prettier-ignore */
 @import "tailwindcss";
+@import "tw-animate-css";
+/*---break---
+ */
+@custom-variant dark (&:is(.dark *));
 
 @theme static {
   /* Surfaces: off-white application canvas vs. pure white clinical canvas. */
@@ -33,9 +44,149 @@
   --color-clinical-extraction: #1e293b;
   --color-clinical-sealant: #16a34a;
 
-  /* System/geometric sans for UI clarity; monospace for codes and money. */
+  /* System/geometric sans for UI clarity; monospace for codes and money.
+   * No webfont is downloaded: the stack is the platform's own, which keeps the
+   * container image build offline and honours the AGENTS.md §3 typography
+   * contract on the chairside tablets of RNF-07. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
+}
+/*---break---
+ */
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+/*---break---
+ */
+/* Semantic palette derived from the Tailwind `slate` scale.
+ * --background is slate-50 (the application canvas mandated by AGENTS.md §3);
+ * --card and --popover stay pure white, which is the colour that signals the
+ * active clinical canvas. */
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #0f172a;
+  --primary-foreground: #f8fafc;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  /* Functional danger colour. Deliberately NOT a clinical finding colour: the
+   * RF-03/RF-02 palette lives in --color-clinical-* and is never reused for
+   * generic UI state. */
+  --destructive: #dc2626;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #94a3b8;
+  --chart-1: #64748b;
+  --chart-2: #475569;
+  --chart-3: #334155;
+  --chart-4: #1e293b;
+  --chart-5: #0f172a;
+  --radius: 0.5rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: #0f172a;
+  --sidebar-primary-foreground: #f8fafc;
+  --sidebar-accent: #f1f5f9;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #94a3b8;
+}
+/*---break---
+ */
+/* Dark counterpart, derived from the same slate scale. The portal ships with the
+ * light theme as default; the dark palette is audited for WCAG contrast in
+ * wi-17, not here. */
+.dark {
+  --background: #020617;
+  --foreground: #f8fafc;
+  --card: #0f172a;
+  --card-foreground: #f8fafc;
+  --popover: #0f172a;
+  --popover-foreground: #f8fafc;
+  --primary: #f8fafc;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e293b;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+  --border: #334155;
+  --input: #334155;
+  --ring: #64748b;
+  --chart-1: #64748b;
+  --chart-2: #475569;
+  --chart-3: #334155;
+  --chart-4: #1e293b;
+  --chart-5: #f8fafc;
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #f8fafc;
+  --sidebar-primary-foreground: #0f172a;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #334155;
+  --sidebar-ring: #64748b;
+}
+/*---break---
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

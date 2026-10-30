@@ -10,7 +10,7 @@
  * - An invalid MFA code never reveals whether the account exists.
  */
 
-import type { UserRole } from "./session-idle-guard.ts";
+import { isUserRole, type UserRole } from "./roles.ts";
 import type {
   LoginWireResponse,
   VerifyMfaWireResponse,
@@ -52,14 +52,6 @@ export interface AuthGatewayErrorLike {
   status?: number;
   message?: string;
 }
-
-const USER_ROLES: UserRole[] = [
-  "admin",
-  "receptionist",
-  "dentist",
-  "assistant",
-  "auditor",
-];
 
 export const DEFAULT_IDLE_TIMEOUT_MS = 900_000;
 
@@ -116,9 +108,7 @@ export function mapAuthError(error: unknown): AuthFlowError {
 }
 
 function toUserRole(value: unknown): UserRole {
-  return typeof value === "string" && (USER_ROLES as string[]).includes(value)
-    ? (value as UserRole)
-    : "receptionist";
+  return isUserRole(value) ? value : "receptionist";
 }
 
 /** Builds the session payload from a successful MFA verification. */

@@ -7,6 +7,7 @@
  * own empty or error state, and the tabs without a read endpoint declare it.
  */
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { renderStickyPatientHeaderHtml } from "../../../../components/patients/StickyPatientHeader.tsx";
 import { renderOdontogramCanvasHtml } from "../../../../components/clinical/OdontogramCanvas.tsx";
@@ -117,9 +118,12 @@ export default async function PatientClinicalRecordPage({
           <p className="text-xs text-slate-600">
             No existe una ficha clínica con el identificador solicitado ({id}).
           </p>
-          <a href="/patients" className="inline-block text-xs font-semibold text-blue-700 underline">
+          <Link
+            href="/patients"
+            className="inline-block text-xs font-semibold text-blue-700 underline"
+          >
             Volver al directorio de pacientes
-          </a>
+          </Link>
         </section>
       </div>
     );

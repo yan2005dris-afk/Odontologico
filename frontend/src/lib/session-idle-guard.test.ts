@@ -1,10 +1,9 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import {
   DEFAULT_IDLE_TIMEOUT_MS,
   createSessionIdleGuard,
   validateTotpCode,
-  getAllowedNavigationModules,
   type CreatePatientInput,
 } from "./session-idle-guard.ts";
 
@@ -94,20 +93,6 @@ describe("wi-10 S1 — Session Idle Guard (15-min timeout RNF-05) & RBAC Navigat
     assert.equal(validateTotpCode("12345").valid, false);
     assert.equal(validateTotpCode("12345a").valid, false);
     assert.equal(validateTotpCode("").valid, false);
-  });
-
-  it("filters collapsible sidebar modules strictly by RBAC role (S1)", () => {
-    const adminModules = getAllowedNavigationModules("admin").map((m) => m.id);
-    assert.deepEqual(adminModules, ["agenda", "patients", "billing-inventory", "reports"]);
-
-    const dentistModules = getAllowedNavigationModules("dentist").map((m) => m.id);
-    assert.deepEqual(dentistModules, ["agenda", "patients", "reports"]);
-
-    const receptionistModules = getAllowedNavigationModules("receptionist").map((m) => m.id);
-    assert.deepEqual(receptionistModules, ["agenda", "patients", "billing-inventory"]);
-
-    const auditorModules = getAllowedNavigationModules("auditor").map((m) => m.id);
-    assert.deepEqual(auditorModules, ["patients", "billing-inventory", "reports"]);
   });
 });
 

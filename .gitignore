@@ -1,0 +1,17 @@
+# Binaries and build outputs
+bin/
+dist/
+.next/
+out/
+node_modules/
+*.exe
+*.out
+*.test
+
+# Local environment & runtime state
+.env
+.env.*
+!.env.example
+.pandorx/pandorx.db
+.pandorx/outputs/
+.worktrees/

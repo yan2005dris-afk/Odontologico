@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "api_keys": {},
+  "custom_models": [
+    {
+      "id": "gemini-4-argon-high",
+      "provider": "antigravity",
+      "agent": "antigravity",
+      "display_name": "Gemini 4 Argon (High)",
+      "input_cost_per_m_token": 2.0,
+      "output_cost_per_m_token": 12.0,
+      "recommended_roles": [
+        "orchestrator",
+        "planner",
+        "reviewer"
+      ]
+    },
+    {
+      "id": "gemini-4-argon-medium",
+      "provider": "antigravity",
+      "agent": "antigravity",
+      "display_name": "Gemini 4 Argon (Medium)",
+      "input_cost_per_m_token": 2.0,
+      "output_cost_per_m_token": 12.0,
+      "recommended_roles": [
+        "planner",
+        "implementer",
+        "reviewer"
+      ]
+    },
+    {
+      "id": "gemini-4-argon-low",
+      "provider": "antigravity",
+      "agent": "antigravity",
+      "display_name": "Gemini 4 Argon (Low)",
+      "input_cost_per_m_token": 0.3,
+      "output_cost_per_m_token": 2.5,
+      "recommended_roles": [
+        "implementer",
+        "reviewer"
+      ]
+    }
+  ],
+  "role_assignments": {
+    "orchestrator_model": "gemini-4-argon-high",
+    "planner_model": "gemini-4-argon-high",
+    "implementer_model": "gemini-4-argon-medium",
+    "reviewer_model": "gemini-4-argon-low",
+    "direct_fulfillment": false
+  }
+}

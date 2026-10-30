@@ -290,18 +290,70 @@ func TestBillingHandler_ListCashRegisters_RN02TheoreticalTotalOmittedWhenOpen(t 
 		t.Fatalf("expected 2 cash registers, got %d", len(items))
 	}
 	for _, item := range items {
-		if item["status"] == domain.CashRegisterStatusOpen {
-			if _, ok := item["theoretical_cents"]; ok {
-				t.Fatalf("RN-02 violation: OPEN cash register exposes theoretical_cents: %v", item)
-			}
-			if _, ok := item["discrepancy_cents"]; ok {
-				t.Fatalf("RN-02 violation: OPEN cash register exposes discrepancy_cents: %v", item)
-			}
-			continue
+		// RN-02: a receptionist never sees the reconciliation figures, neither
+		// for an OPEN register nor for a CLOSED one.
+		if _, ok := item["theoretical_cents"]; ok {
+			t.Fatalf("RN-02 violation: receptionist sees theoretical_cents: %v", item)
 		}
-		if _, ok := item["theoretical_cents"]; !ok {
-			t.Fatalf("expected theoretical_cents on the CLOSED cash register: %v", item)
+		if _, ok := item["discrepancy_cents"]; ok {
+			t.Fatalf("RN-02 violation: receptionist sees discrepancy_cents: %v", item)
 		}
+	}
+}
+
+// RN-02: the theoretical total and the discrepancy are reconciliation figures.
+// They belong to auditor/admin only, exactly as in GetAuditReport: a
+// receptionist that could read the discrepancy could subtract it from the
+// declared count and recover the theoretical total by arithmetic.
+func TestBillingHandler_ListCashRegisters_ReconciliationFiguresAreAuditorAdminOnly(t *testing.T) {
+	mux, repo, _ := newBillingServerWithAudit()
+	base := time.Date(2026, 1, 10, 12, 0, 0, 0, time.UTC)
+
+	closedReg := seedCashRegister(t, repo, "reg-closed-rbac", "sede-central", base)
+	if err := closedReg.RecordCashMovement("mov-rbac", "inv-rbac", domain.MovementDirectionIn, 135000, "Cash payment", "recepcionista-01-uuid", base.Add(90*time.Minute)); err != nil {
+		t.Fatalf("record cash movement: %v", err)
+	}
+	if _, err := closedReg.ExecuteBlindClose(180000, map[string]int{"1000": 180}, "Cierre con diferencia", "recepcionista-01-uuid", base.Add(2*time.Hour)); err != nil {
+		t.Fatalf("blind close: %v", err)
+	}
+	if err := repo.UpdateCashRegister(context.Background(), closedReg); err != nil {
+		t.Fatalf("update cash register: %v", err)
+	}
+
+	// The receptionist sees the declared count (its own submission) but neither
+	// the theoretical total nor the discrepancy.
+	rec := doRequest(mux, http.MethodGet, "/api/v1/billing/cash-registers", nil, "recepcionista-01-uuid", "receptionist", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK listing cash registers, got %d: %s", rec.Code, rec.Body.String())
+	}
+	_, items := decodeList(t, rec.Body.String())
+	if len(items) != 1 {
+		t.Fatalf("expected 1 cash register, got %d", len(items))
+	}
+	if _, ok := items[0]["theoretical_cents"]; ok {
+		t.Fatalf("RN-02 violation: receptionist sees theoretical_cents: %v", items[0])
+	}
+	if _, ok := items[0]["discrepancy_cents"]; ok {
+		t.Fatalf("RN-02 violation: receptionist sees discrepancy_cents: %v", items[0])
+	}
+	if items[0]["declared_cents"] != float64(180000) {
+		t.Fatalf("expected the declared count to stay visible, got %v", items[0])
+	}
+
+	// The auditor reconciles: both figures are present and coherent.
+	rec = doRequest(mux, http.MethodGet, "/api/v1/billing/cash-registers", nil, "auditor-01-uuid", "auditor", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK listing cash registers, got %d: %s", rec.Code, rec.Body.String())
+	}
+	_, items = decodeList(t, rec.Body.String())
+	if len(items) != 1 {
+		t.Fatalf("expected 1 cash register, got %d", len(items))
+	}
+	if items[0]["theoretical_cents"] != float64(185000) {
+		t.Fatalf("expected theoretical_cents=185000, got %v", items[0]["theoretical_cents"])
+	}
+	if items[0]["discrepancy_cents"] != float64(-5000) {
+		t.Fatalf("expected discrepancy_cents=-5000, got %v", items[0]["discrepancy_cents"])
 	}
 }
 

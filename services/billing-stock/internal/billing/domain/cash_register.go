@@ -218,9 +218,14 @@ func (cr *CashRegister) ExecuteBlindClose(declaredCashCents int64, denominations
 
 // CashRegisterListItemView is the DTO of the cash register listing.
 //
-// RN-02: the theoretical cash total only exists once the register is CLOSED. While the
-// register is OPEN the field is absent from the JSON payload (not null, not zero), so
-// a receptionist can never read the theoretical total before submitting the count.
+// RN-02 is enforced in two layers, and this DTO enforces both:
+//  1. While the register is OPEN the theoretical total is absent for every
+//     role (including receptionist): the physical count has not been declared
+//     yet, so there is nothing to reconcile against.
+//  2. Once the register is CLOSED the theoretical total and the discrepancy
+//     belong to the reconciliation and stay with auditor/admin only. The
+//     discrepancy is declared - theoretical, so exposing it would reveal the
+//     theoretical by subtraction.
 type CashRegisterListItemView struct {
 	ID               string     `json:"id"`
 	ClinicID         string     `json:"clinic_id"`
@@ -232,7 +237,12 @@ type CashRegisterListItemView struct {
 	DiscrepancyCents *int64     `json:"discrepancy_cents,omitempty"`
 }
 
-func (cr *CashRegister) ToListItemView() CashRegisterListItemView {
+// ToListItemView maps the register to the listing DTO.
+//
+// canSeeReconciliation tells whether the actor belongs to the reconciliation
+// roles (auditor/admin); only those see the theoretical total and the
+// discrepancy of a closed register (RN-02).
+func (cr *CashRegister) ToListItemView(canSeeReconciliation bool) CashRegisterListItemView {
 	view := CashRegisterListItemView{
 		ID:       cr.ID,
 		ClinicID: cr.ClinicID,
@@ -247,14 +257,17 @@ func (cr *CashRegister) ToListItemView() CashRegisterListItemView {
 		declared := *cr.DeclaredCashCents
 		view.DeclaredCents = &declared
 	}
-	if cr.DiscrepancyCents != nil {
-		discrepancy := *cr.DiscrepancyCents
-		view.DiscrepancyCents = &discrepancy
-	}
-	// RN-02: the theoretical total is only revealed for a CLOSED register.
-	if cr.Status == CashRegisterStatusClosed && cr.TheoreticalCashCents != nil {
-		theoretical := *cr.TheoreticalCashCents
-		view.TheoreticalCents = &theoretical
+	// RN-02: the theoretical total is only reconciled after the blind close,
+	// and only by the roles allowed to reconcile it.
+	if cr.Status == CashRegisterStatusClosed && canSeeReconciliation {
+		if cr.TheoreticalCashCents != nil {
+			theoretical := *cr.TheoreticalCashCents
+			view.TheoreticalCents = &theoretical
+		}
+		if cr.DiscrepancyCents != nil {
+			discrepancy := *cr.DiscrepancyCents
+			view.DiscrepancyCents = &discrepancy
+		}
 	}
 	return view
 }

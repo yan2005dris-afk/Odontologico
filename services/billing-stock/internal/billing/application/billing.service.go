@@ -355,8 +355,11 @@ func (s *BillingService) ListCashRegisters(ctx context.Context, actor ActorConte
 		return nil, 0, err
 	}
 	items := make([]domain.CashRegisterListItemView, 0, len(registers))
+	// RN-02: the reconciliation figures (theoretical total and discrepancy)
+	// belong to auditor/admin only, exactly as in GetAuditReport.
+	canReconcile := actor.ActorRole == "auditor" || actor.ActorRole == "admin"
 	for idx := range registers {
-		items = append(items, registers[idx].ToListItemView())
+		items = append(items, registers[idx].ToListItemView(canReconcile))
 	}
 	s.recordExportAudit(ctx, actor, "CASH_REGISTER", "cash-registers", map[string]string{
 		"total":     strconv.Itoa(total),

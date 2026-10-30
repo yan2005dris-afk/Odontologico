@@ -36,8 +36,13 @@ COPY . .
 # instead of runtime environment variables.
 ARG NEXT_PUBLIC_API_GATEWAY_URL=https://localhost:8443
 ARG NEXT_PUBLIC_IDLE_TIMEOUT_MS=900000
+# Renders the development role picker on the login screen (wi-18 S3). It ships
+# the seeded credentials in the browser bundle, so the default is OFF and only
+# the development stack turns it on.
+ARG NEXT_PUBLIC_DEV_ROLE_LOGIN=false
 ENV NEXT_PUBLIC_API_GATEWAY_URL=${NEXT_PUBLIC_API_GATEWAY_URL}
 ENV NEXT_PUBLIC_IDLE_TIMEOUT_MS=${NEXT_PUBLIC_IDLE_TIMEOUT_MS}
+ENV NEXT_PUBLIC_DEV_ROLE_LOGIN=${NEXT_PUBLIC_DEV_ROLE_LOGIN}
 
 RUN pnpm build
 

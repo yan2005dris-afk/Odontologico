@@ -128,8 +128,10 @@ services:
     container_name: sigo-dental-api-gateway
     restart: unless-stopped
     ports:
-      - "${GATEWAY_HTTP_PORT:-8080}:8080"
-      - "${GATEWAY_HTTPS_PORT:-8443}:8443"
+      # Non-default host ports on purpose: this stack is meant to stay running
+      # next to other local projects without fighting over 8080/8443.
+      - "${GATEWAY_HTTP_PORT:-18080}:8080"
+      - "${GATEWAY_HTTPS_PORT:-18443}:8443"
     environment:
       PORT: "8080"
       TLS_PORT: "8443"
@@ -141,7 +143,7 @@ services:
       BILLING_STOCK_UPSTREAM: http://billing-stock:8082
       JWT_SECRET: ${JWT_SECRET:-sigo-dental-production-hs256-secret-key-2026}
       SESSION_IDLE_TTL_SECONDS: "900"
-      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-https://portal.sigo-dental.local}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:18777}
       OPENAPI_SPEC_PATH: /app/openapi/sigo-dental.v1.yaml
     volumes:
       # The gateway loads the contract at startup and exits when it is missing.
@@ -154,8 +156,14 @@ services:
       billing-stock:
         condition: service_healthy
     networks:
-      - sigo_internal
-      - sigo_edge
+      sigo_internal: {}
+      sigo_edge:
+        aliases:
+          # The Cloudflare Tunnel ingress of the shared tunnel points to
+          # http://gateway:8080. This alias publishes the same container
+          # under that name inside the compose network, so the tunnel
+          # resolves the origin without changing the panel configuration.
+          - gateway
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
       interval: 5s
@@ -170,18 +178,21 @@ services:
         # NEXT_PUBLIC_* values are inlined at build time; the runtime env below
         # cannot change them once the image exists. The browser talks only to
         # Next (same-origin), so this value is kept for legacy compatibility.
-        NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:8080}
+        NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:18080}
         NEXT_PUBLIC_IDLE_TIMEOUT_MS: "900000"
         # Renders the development role picker on the login screen (wi-18 S3).
         # It ships the seeded credentials in the browser bundle: never enable it
-        # in a published build.
+        # in a published build, and never while a Cloudflare tunnel exposes
+        # this stack to the internet.
         NEXT_PUBLIC_DEV_ROLE_LOGIN: ${NEXT_PUBLIC_DEV_ROLE_LOGIN:-true}
     container_name: sigo-dental-frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      # Same rationale as the gateway: keep the host ports out of the usual
+      # 3000 range so another local project can bind it.
+      - "${FRONTEND_PORT:-18777}:3000"
     environment:
-      NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:8080}
+      NEXT_PUBLIC_API_GATEWAY_URL: ${NEXT_PUBLIC_API_GATEWAY_URL:-http://localhost:18080}
       NEXT_PUBLIC_SESSION_IDLE_TIMEOUT_MS: "900000"
       # Server components and server actions reach the gateway over the
       # internal compose network; the browser never calls it directly.
@@ -200,6 +211,36 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ---------------------------------------------------------------------
+  # Cloudflare Tunnel — profile "tunnel"
+  # ---------------------------------------------------------------------
+  # Named tunnel. The token is read from CLOUDFLARE_TUNNEL_TOKEN in .env
+  # (the image is distroless: it has no shell, so the token travels as the
+  # TUNNEL_TOKEN environment variable that `cloudflared tunnel run` reads).
+  #
+  # The routing is NOT defined here: in the Cloudflare Zero Trust dashboard
+  # the public hostname must point to the compose service
+  #     http://frontend:3000
+  # because cloudflared reaches the portal over the internal network.
+  #
+  # Without a valid token cloudflared exits with code 255 ("requires the ID
+  # or name of the tunnel" / "Provided Tunnel token is not valid") and Docker
+  # restarts it. The other seven services keep working: the tunnel is an
+  # add-on, not a dependency.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sigo-dental-cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      - sigo_edge
 
 networks:
   sigo_internal:

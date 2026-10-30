@@ -18,11 +18,31 @@ docker compose ps         # 7 servicios en healthy
 | `rustfs` | `rustfs/rustfs:1.0.4` | — | Almacenamiento de objetos S3 (radiografías, fotos, consentimientos firmados) |
 | `clinical-agenda` | `services/clinical-agenda/Dockerfile` | — | Identidad, pacientes, clínico, tratamientos, agenda, auditoría |
 | `billing-stock` | `services/billing-stock/Dockerfile` | — | Facturación (POS), liquidaciones, inventario |
-| `api-gateway` | `services/api-gateway/Dockerfile` | `8080` (HTTP), `8443` (TLS, sin certificados) | Ingress: JWT/MFA, RBAC, rate limit, OpenAPI |
-| `frontend` | `frontend/Dockerfile` | `3000` | Portal Next.js (App Router) |
+| `api-gateway` | `services/api-gateway/Dockerfile` | `18080` (HTTP), `18443` (TLS, sin certificados) | Ingress: JWT/MFA, RBAC, rate limit, OpenAPI |
+| `frontend` | `frontend/Dockerfile` | `18777` | Portal Next.js (App Router) |
+| `cloudflared` | `cloudflare/cloudflared:latest` | — | Túnel de Cloudflare (perfil `tunnel`, opcional) |
 
 Redes: `sigo_internal` (interna, sólo entre servicios) y `sigo_edge`
 (publica `api-gateway` y `frontend`).
+
+### Puertos
+
+Los puertos del host **no son los habituales** (3000 / 8080 / 8443) a
+propósito: este stack está pensado para quedar prendido junto a otros
+proyectos locales sin pelearse por ellos. Los puertos internos de los
+contenedores (`3000`, `8080`, `8443`) no cambian nunca.
+
+| Variable | Default | Servicio |
+| :--- | :--- | :--- |
+| `FRONTEND_PORT` | `18777` | Portal Next.js |
+| `GATEWAY_HTTP_PORT` | `18080` | Gateway, HTTP plano |
+| `GATEWAY_HTTPS_PORT` | `18443` | Gateway, TLS 1.3 (sin certificados) |
+
+Si tenés otro proyecto escuchando en alguno de esos, cambialo en `deploy/.env`
+y recreá el servicio afectado (`docker compose up -d frontend`).
+
+`postgres`, `redis` y `rustfs` **no publican puertos al host**: sólo viven en
+la red interna, y se les habla por el nombre del servicio.
 
 ## Variables de entorno obligatorias
 
@@ -42,8 +62,8 @@ Y el bloque del portal:
 
 ```bash
 # Frontend Portal (Next.js App Router PWA)
-FRONTEND_PORT=3000
-NEXT_PUBLIC_API_GATEWAY_URL=http://localhost:8080
+FRONTEND_PORT=18777
+NEXT_PUBLIC_API_GATEWAY_URL=http://localhost:18080
 GATEWAY_INTERNAL_URL=http://api-gateway:8080
 SESSION_COOKIE_SECURE=false
 ```
@@ -55,13 +75,97 @@ gateway no queda expuesto al cliente.
 
 `SESSION_COOKIE_SECURE` debe ser `true` cuando el portal se publique detrás
 de TLS. Con el stack local (HTTP plano) tiene que ser `false`, porque un
-cookie `Secure` no se guarda en `http://localhost:3000`.
+cookie `Secure` no se guarda en `http://localhost:18777`.
 
 ## RustFS: credenciales canónicas
 
 RustFS acepta `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY`. `MINIO_ROOT_USER` /
 `MINIO_ROOT_PASSWORD` se mapean a las variables **deprecadas**
 `RUSTFS_ROOT_USER` / `RUSTFS_ROOT_PASSWORD`: usá las canónicas.
+
+## Cloudflare Tunnel
+
+El servicio `cloudflared` publica el portal en un hostname de Cloudflare sin
+abrir puertos en el router. Vive en el perfil `tunnel`, así que **no** arranca
+con un `docker compose up -d` normal: hay que pedir el perfil explícitamente.
+
+### 1. Crear el túnel
+
+En **Cloudflare → Zero Trust → Networks → Tunnels → Create a tunnel**, elegí
+`cloudflared` y copiá el token.
+
+### 2. Pegar el token en `.env`
+
+```bash
+CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
+```
+
+El servicio lo recibe como la variable `TUNNEL_TOKEN`, que es la que lee
+`cloudflared tunnel run`. La imagen es *distroless* (no tiene shell), por eso
+el token viaja **por variable de entorno** y no por un `--token` en la línea
+de comandos.
+
+### 3. Configurar el hostname público
+
+En el mismo panel, en **Public Hostname**, creá el registro apuntando a:
+
+```
+http://frontend:3000
+```
+
+El destino es el **nombre del servicio de compose**, no `localhost:3000`: el
+túnel corre dentro de la red de Docker y no alcanza al host. Tampoco hace
+falta exponer el gateway — el portal es same-origin y las server actions
+hablan con el gateway por `GATEWAY_INTERNAL_URL`.
+
+> **Si tu ingress apunta a `http://gateway:8080`**, también funciona: el
+> servicio `api-gateway` publica un alias de red llamado `gateway` en
+> `sigo_edge`, así que el túnel resuelve ese nombre hacia el ingress sin
+> tocar la configuración del panel.
+
+### 4. Levantar y verificar
+
+```bash
+docker compose --profile tunnel up -d
+docker compose logs -f cloudflared
+```
+
+Para bajarlo: `docker compose --profile tunnel stop cloudflared`.
+
+Comprobación de que el origen responde:
+
+```bash
+curl -s https://<tu-hostname>/healthz
+```
+
+Si el túnel está bien conectado pero el origen no resuelve, en los logs
+aparece `Unable to reach the origin service ... lookup frontend ... no such
+host`: eso significa que el hostname del panel no coincide con el nombre del
+servicio (`frontend`) o con el alias (`gateway`).
+
+### Si el contenedor reinicia en loop
+
+`cloudflared` sale con código **255** si el token falta o no es válido:
+
+```
+"cloudflared tunnel run" requires the ID or name of the tunnel to run ...
+Provided Tunnel token is not valid.
+```
+
+Con `restart: unless-stopped`, Docker lo vuelve a levantar. Los otros 7
+servicios **no se ven afectados**: el túnel es un addon, no una dependencia.
+
+### Antes de dejarlo expuesto a internet
+
+| Variable | Valor | Por qué |
+| :--- | :--- | :--- |
+| `NEXT_PUBLIC_DEV_ROLE_LOGIN` | `false` | El selector de rol mete las contraseñas de los 5 roles **en el bundle del navegador**. Se inlinea al compilar, así que hay que rehacer la imagen: `docker compose build frontend`. |
+| `MFA_REQUIRED` | `true` | Con el MFA apagado la contraseña sola abre la sesión. |
+| `SESSION_COOKIE_SECURE` | `true` | Obligatorio detrás de HTTPS: con `false` el cookie viaja sin `Secure`. |
+| `ALLOWED_ORIGIN` | `https://<tu-hostname>` | El origen real del portal, para el CORS del gateway. |
+
+Además, cambiá `JWT_SECRET`, `POSTGRES_PASSWORD` y `RUSTFS_SECRET_KEY`: los
+valores de la plantilla son públicos y están en el repositorio.
 
 ## Portal: credenciales de desarrollo
 
@@ -72,7 +176,7 @@ El login es de **dos pasos** (`RNF-05`): credenciales → desafío MFA → sesi�
 2. `POST /api/v1/auth/mfa/verify` con `{challenge_token, totp_code}` (6 dígitos)
    devuelve `{access_token, session_id, user, idle_timeout_seconds}`.
 
-El portal en `http://localhost:3000/login` pide primero el correo y la
+El portal en `http://localhost:18777/login` pide primero el correo y la
 contraseña, y después el código TOTP de 6 dígitos.
 
 ### Modo desarrollo: sin MFA y con acceso rápido por rol
@@ -82,13 +186,13 @@ el selector de rol** en la pantalla de login. Con el MFA apagado, el paso 1 ya
 devuelve la sesión completa y el paso 2 no existe:
 
 ```bash
-curl -sS -X POST http://localhost:8080/api/v1/auth/login \
+curl -sS -X POST http://localhost:18080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"recepcion@sigo-dental.com","password":"ReceptionPass#2026"}'
 # → {"mfa_required":false,"access_token":"…","session_id":"…","user":{…},"idle_timeout_seconds":900}
 ```
 
-En el portal, `http://localhost:3000/login` muestra un panel **«Modo
+En el portal, `http://localhost:18777/login` muestra un panel **«Modo
 desarrollo»** con un botón por rol: lo pulsás y entras con esa cuenta, sin
 calcular ningún TOTP.
 

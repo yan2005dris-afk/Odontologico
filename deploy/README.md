@@ -177,6 +177,51 @@ banda:
 - El wire format es **`snake_case`**: `challenge_token`, `totp_code`,
   `access_token`, `idle_timeout_seconds`.
 
+## Datos de demostración (`SIGO_SEED_DEMO_DATA=true`)
+
+Los repositorios de `clinical-agenda` y `billing-stock` son **en memoria**: cada
+arranque arranca vacío. Con `SIGO_SEED_DEMO_DATA=true` (valor por defecto
+`false` en el código) cada servicio siembra en el arranque un juego de datos
+**ficticio pero coherente**, para que las pantallas del portal tengan contenido
+y los roles se puedan probar sin carga manual.
+
+El seed es **idempotente**: comprueba antes de crear y usa identificadores
+fijos, así que volver a arrancarlo no duplica ni pisa registros.
+
+### Qué se siembra
+
+| Servicio | Entidad | Cantidad | Detalle |
+| :--- | :--- | :--- | :--- |
+| `clinical-agenda` | Pacientes | 6 | 2 con alerta crítica de alergia, 1 con alerta crítica de anticoagulación, 1 menor de 18 con tutor legal completo |
+| `clinical-agenda` | Anamnesis | 4 | uno por cada paciente con alerta o historial relevante |
+| `clinical-agenda` | Citas | 9 | 3 sillones, 6 estados del diagrama (`PROGRAMADO` … `CANCELADO`), varias el día de hoy y otras en los próximos días |
+| `clinical-agenda` | Planes de tratamiento | 4 | uno por estado (`DRAFT`, `APPROVED_PARTIAL`, `APPROVED_TOTAL`, `COMPLETED`), importes en centavos |
+| `clinical-agenda` | Odontograma | 6 hallazgos | caries, restauraciones, pieza ausente, sellante y endodoncia, en notación FDI |
+| `clinical-agenda` | Periodontograma | 1 ficha | 8 piezas con sondaje, con bolsas de 4 mm o más |
+| `clinical-agenda` | Notas SOEP | 3 | una de hace 30 h (bloqueada por `RN-01`) y dos dentro de la ventana de 24 h |
+| `clinical-agenda` | Consentimientos | 4 | `PENDING`, `SIGNED_BIOMETRIC`, `SIGNED_OTP` y un `PENDING` adicional |
+| `billing-stock` | Comprobantes | 8 | importes en centavos, paciente asociado y 5 métodos de pago (`CASH`, `CREDIT_CARD`, `DEBIT_CARD`, `BANK_TRANSFER`, `DENTAL_INSURANCE`, `MIXED`), con estado fiscal `PENDING` y `AUTHORIZED` |
+| `billing-stock` | Cajas | 2 | una `OPEN` (flotante 50 000 centavos, sin movimientos) y una `CLOSED` (flotante 50 000 + 25 500 de Cobro, declarada en 48 000 → discrepancia −27 500) |
+| `billing-stock` | Liquidaciones | 3 | `DRAFT`, `APPROVED` y `PAID` |
+| `billing-stock` | Reglas de comisión | 4 | por procedimiento y una regla comodín (`*`) |
+| `billing-stock` | Insumos | 10 | 4 de ellos en o por debajo del mínimo (`low_stock` derivado) |
+| `billing-stock` | Recetas | 4 | consumo de insumos por procedimiento |
+
+Los identificadores de los pacientes del seed son los mismos en los dos
+servicios, así que cada comprobante apunta a un paciente sembrado.
+
+### Cajas y `RN-02` (conteo ciego)
+
+La caja `OPEN` es la caja viva del turno: **no tiene movimientos de efectivo**,
+así que no existe teórico para nadie y su reporte de auditoría está prohibido
+para todos los roles, `admin` incluido.
+
+La caja `CLOSED` se cierra con un conteo declarado (48 000 centavos) que **no
+cuadra** con el teórico (50 000 de flotante + 25 500 cobrados = 75 500), o sea
+una discrepancia de −27 500 centavos. Ese par de cifras sólo se publica para
+`auditor` y `admin`: con rol `receptionist` el listado devuelve el declarado y
+nunca el teórico ni la discrepancia.
+
 ## Migración de blobs MinIO → RustFS
 
 El formato on-disk de RustFS **no** es compatible con MinIO. Renombrar el

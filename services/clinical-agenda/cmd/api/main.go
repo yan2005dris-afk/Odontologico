@@ -238,6 +238,27 @@ func buildMux() *http.ServeMux {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready", "service": "clinical-agenda"})
 	})
 
+	// Demo dataset (wi-18, S4). The repositories of the service live in
+	// memory, so the portal has nothing to show until the seed runs. It is
+	// opt-in through SIGO_SEED_DEMO_DATA and it is idempotent.
+	summary, err := seedDemoDataIfEnabled(context.Background(), demoSeedDeps{
+		audit:      auditSvc,
+		patients:   patientRepo,
+		scheduling: schedulingRepo,
+		treatments: treatmentRepo,
+		odontogram: odoRepo,
+		periodonto: perioRepo,
+		soep:       soepRepo,
+		consents:   consentRepo,
+		blobs:      blobStore,
+	}, time.Now().UTC())
+	if err != nil {
+		log.Printf("could not seed the demo dataset completely: %v", err)
+	}
+	if summary.Patients > 0 {
+		log.Printf("demo dataset seeded: %s", demoDatasetLabel(summary))
+	}
+
 	return mux
 }
 

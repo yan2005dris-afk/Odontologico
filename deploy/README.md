@@ -63,6 +63,53 @@ RustFS acepta `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY`. `MINIO_ROOT_USER` /
 `MINIO_ROOT_PASSWORD` se mapean a las variables **deprecadas**
 `RUSTFS_ROOT_USER` / `RUSTFS_ROOT_PASSWORD`: usá las canónicas.
 
+## Portal: credenciales de desarrollo
+
+El login es de **dos pasos** (`RNF-05`): credenciales → desafío MFA → sesión.
+
+1. `POST /api/v1/auth/login` con `{email, password}` devuelve
+   `{mfa_required, challenge_token, expires_in_seconds}`.
+2. `POST /api/v1/auth/mfa/verify` con `{challenge_token, totp_code}` (6 dígitos)
+   devuelve `{access_token, session_id, user, idle_timeout_seconds}`.
+
+El portal en `http://localhost:3000/login` pide primero el correo y la
+contraseña, y después el código TOTP de 6 dígitos.
+
+El usuario que siembra `clinical-agenda` al arrancar
+(`services/clinical-agenda/cmd/api/main.go:59-70`) es:
+
+| Campo | Valor |
+| :--- | :--- |
+| Correo | `dra.gomez@sigo-dental.com` |
+| Contraseña | `ClinicalPass#2026` |
+| Rol RBAC | `dentist` |
+| Secreto TOTP (base32) | `JBSWY3DPEHPK3PXP` |
+
+El secreto es un TOTP RFC 6238 estándar, así que se puede pegar en cualquier
+app de autenticador (Aegis, Google Authenticator, 1Password) para obtener el
+código de 6 dígitos. Para generarlo al vuelo desde la terminal:
+
+```bash
+python3 -c "
+import base64,hmac,hashlib,struct,time
+k=base64.b32decode('JBSWY3DPEHPK3PXP')
+h=hmac.new(k,struct.pack('>Q',int(time.time())//30),hashlib.sha1).digest()
+o=h[-1]&15
+print(str((struct.unpack('>I',h[o:o+4])[0]&0x7fffffff)%1000000).zfill(6))"
+```
+
+**Advertencias operativas:**
+
+- **El repositorio de usuarios es en memoria.** Cada reinicio del contenedor
+  vuelve a sembrar el usuario y **borra pacientes, turnos, facturas y
+  liquidaciones**. Los datos no sobreviven a un `docker compose restart`.
+- **Sólo existe un rol sembrado (`dentist`).** Las pantallas de
+  administración (`/users`), auditoría (`/audit`) y facturación (`/billing`)
+  requieren `admin`, `auditor` y `receptionist` respectivamente; con el
+  usuario único no se pueden abrir. `wi-15` siembra los 5 roles canónicos.
+- El wire format es **`snake_case`**: `challenge_token`, `totp_code`,
+  `access_token`, `idle_timeout_seconds`.
+
 ## Migración de blobs MinIO → RustFS
 
 El formato on-disk de RustFS **no** es compatible con MinIO. Renombrar el

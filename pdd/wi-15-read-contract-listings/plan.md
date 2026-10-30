@@ -33,6 +33,7 @@ Además, este work item corrige **tres defectos del gateway** que hoy hacen que 
 
 ### Dentro del alcance (In Scope)
 
+- **S0.** Seed de los 5 roles RBAC canónicos en `clinical-agenda`, para que el listado de usuarios sea representativo y las pantallas de `wi-17` puedan ejercitarse con los roles que las requieren.
 - **S1.** `clinical-agenda`: 5 endpoints `GET` de listado (usuarios, planes de tratamiento globales y por paciente, consentimientos globales y por paciente).
 - **S2.** `billing-stock`: 6 endpoints `GET` de listado (comprobantes, cajas, liquidaciones, reglas de comisión, insumos, recetas).
 - **S3.** Puertos de repositorio + métodos de lectura nuevos, con paginación `limit`/`offset`, filtro `q` y filtros por dominio, reutilizando la convención de respuesta `{items, total}` de `handleSearchPatients` (`patient_handler.go:94-97`).
@@ -63,6 +64,8 @@ Además, este work item corrige **tres defectos del gateway** que hoy hacen que 
 
 ## 3. Specs numeradas
 
+- **S0 — Seed de los 5 roles RBAC.** Hoy `services/clinical-agenda/cmd/api/main.go:59-70` siembra **un solo** usuario (`dra.gomez@sigo-dental.com`, rol `dentist`) en cada arranque. Con un único rol no se puede ejercitar `GET /api/v1/users` (la lista tendría una fila), ni las pantallas de `wi-17` que exigen `admin` (`/users`), `auditor` (`/audit`) o `receptionist` (`/billing`). Se siembran los 5 roles canónicos de `SRS §3` — `admin`, `receptionist`, `dentist`, `assistant`, `auditor` — con credenciales de desarrollo documentadas, MFA habilitado y todos con `active = true`. El seed es **idempotente** (se crea si no existe, con `CreateUser` ignorando el duplicado) y vive en el mismo arranque del servicio. Los secretos de TOTP de desarrollo se leen de variables de entorno con valores por defecto deterministas, para que el equipo pueda autenticarse sin depender de un canal fuera de banda.
+  - **Consecuencia asumida y documentada**: el repositorio de usuarios es en memoria (`internal/identity/adapters/postgres/user_repository.go`), de modo que **cada reinicio del contenedor vuelve a sembrar el juego de usuarios** y borra pacientes, turnos y facturas. Es el mismo límite de persistencia que ya afecta a todo el sistema; no se introduce aquí.
 - **S1 — `clinical-agenda`: 5 listados.**
   - `GET /api/v1/users` — personal de la clínica: `id`, `email`, `full_name`, `role`, `mfa_enabled`, `is_active`. Sólo rol `admin`.
   - `GET /api/v1/treatment-plans` — listados global con filtros `patient_id`, `status` (`DRAFT` | `PARTIALLY_APPROVED` | `APPROVED` | `COMPLETED`), `q`; devuelve `total_approved_cents` y `total_planned_cents` por plan.
@@ -155,6 +158,7 @@ Además, este work item corrige **tres defectos del gateway** que hoy hacen que 
 
 | Task | Specs | Archivos | Prueba RED |
 | :--- | :--- | :--- | :--- |
+| T0 | S0 | `cmd/api/main.go` + test | hoy sólo existe 1 usuario (rol `dentist`): `GET /api/v1/users` no puede devolver una lista representativa ni los roles `admin`/`auditor`/`receptionist` pueden iniciar sesión |
 | T1 | S4 | `rbac_policy.go` + test | `/api/v1/treatment-plans/{id}/approve` con `mfa_verified=false` no debe pasar; `/api/v1/users` con rol no admin debe dar 403 |
 | T2 | S4 | `gateway.service.go` + test | `ResolveUpstream("/api/v1/treatment-plans/x/approve")` devuelve `UpstreamUnknown` hoy |
 | T3 | S3, S1 | identity repo + service + handler | `GET /api/v1/users` → 404 hoy; el test RED exige `{items,total}` |

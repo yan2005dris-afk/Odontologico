@@ -1,0 +1,296 @@
+openapi: 3.0.3
+info:
+  title: SIGO-Dental Edge API Gateway
+  version: 1.0.0
+  description: >
+    Unified OpenAPI v3.0 specification for SIGO-Dental (Sistema Integral de Gestión
+    Odontológica y Expediente Clínico Digital) — SRS §7, §8.2, RNF-01..RNF-06.
+servers:
+  - url: https://api.sigo-dental.local:8443
+    description: Edge Gateway (TLS 1.3 Mandatory in Production)
+  - url: http://localhost:8080
+    description: Local Development Ingress
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Gateway liveness and readiness probe
+      operationId: getHealthz
+      security: []
+      responses:
+        "200":
+          description: Gateway healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, service, tls_min_version]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: api-gateway
+                  tls_min_version:
+                    type: string
+                    example: "1.3"
+
+  /metrics:
+    get:
+      summary: Gateway latency and SLA (< 1.5s RNF-01) telemetry metrics
+      operationId: getMetrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus / JSON telemetry exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /openapi.json:
+    get:
+      summary: Serve OpenAPI v3.0 contract (SRS §8.2)
+      operationId: getOpenAPISpec
+      security: []
+      responses:
+        "200":
+          description: OpenAPI v3.0 JSON document
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/auth/login:
+    post:
+      summary: Authenticate user credentials and issue pre-MFA session token (RNF-05)
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Pre-MFA JWT issued
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /api/v1/auth/mfa/verify:
+    post:
+      summary: Verify 6-digit TOTP/OTP code and upgrade session to mfa_verified=true (RNF-05)
+      operationId: authVerifyMFA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  pattern: "^[0-9]{6}$"
+      responses:
+        "200":
+          description: Full MFA-verified JWT issued with 900s sliding idle TTL
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /api/v1/patients:
+    get:
+      summary: Search unified patient records (RF-01)
+      operationId: listPatients
+      responses:
+        "200":
+          description: Paginated patient list
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+    post:
+      summary: Register a new patient (RF-01)
+      operationId: createPatient
+      responses:
+        "201":
+          description: Patient created
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/patients/{patientId}/anamnesis:
+    get:
+      summary: Retrieve patient anamnesis and critical medical alerts (RF-02, MFA required)
+      operationId: getPatientAnamnesis
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Anamnesis and high-visibility alerts
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/clinical/odontograms:
+    get:
+      summary: Retrieve 2D interactive odontogram in FDI/Universal notation (RF-03, MFA required)
+      operationId: getOdontogram
+      responses:
+        "200":
+          description: Odontogram state
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+    post:
+      summary: Record clinical finding or surface state on 2D odontogram (RF-03, MFA required)
+      operationId: updateOdontogram
+      responses:
+        "200":
+          description: Odontogram updated
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/treatments/plans:
+    post:
+      summary: Create multi-phase treatment plan and budget (RF-07, MFA required)
+      operationId: createTreatmentPlan
+      responses:
+        "201":
+          description: Treatment plan created
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/scheduling/appointments:
+    post:
+      summary: Schedule appointment with chair overlap prevention (RF-09, RN-03)
+      operationId: createAppointment
+      responses:
+        "201":
+          description: Appointment scheduled
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/billing/invoices:
+    get:
+      summary: List electronic invoices and POS receipts (RF-12, MFA required)
+      operationId: listInvoices
+      responses:
+        "200":
+          description: Invoice list
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+    post:
+      summary: Issue electronic invoice or POS payment (RF-12, MFA required)
+      operationId: createInvoice
+      responses:
+        "201":
+          description: Invoice created
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/settlements/commissions:
+    get:
+      summary: Calculate specialist settlements and commissions (RF-13, MFA required)
+      operationId: listSettlements
+      responses:
+        "200":
+          description: Specialist settlement report
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/inventory/supplies:
+    post:
+      summary: Register or update clinical inventory supplies (RF-14)
+      operationId: upsertInventorySupplies
+      responses:
+        "200":
+          description: Inventory updated
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /api/v1/audit/logs:
+    get:
+      summary: Query immutable clinical CRUD audit trail (RNF-06)
+      operationId: listAuditLogs
+      responses:
+        "200":
+          description: Immutable audit log entries
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              example: SESSION_IDLE_TIMEOUT
+            message:
+              type: string
+              example: Session expired after 15 minutes of inactivity
+            request_id:
+              type: string
+              example: 550e8400-e29b-41d4-a716-446655440000
+
+  responses:
+    UnauthorizedError:
+      description: Missing, invalid, expired JWT or 15-minute idle timeout (SESSION_IDLE_TIMEOUT)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ForbiddenError:
+      description: MFA_REQUIRED or INSUFFICIENT_ROLE_PERMISSION
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"

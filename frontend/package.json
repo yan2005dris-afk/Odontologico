@@ -1,0 +1,29 @@
+{
+  "name": "sigo-dental-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node --import ./vitest.config.ts --test src/lib/session-idle-guard.test.ts src/components/patients/StickyPatientHeader.test.tsx src/components/patients/PatientRegistrationForm.test.tsx src/components/agenda/MultiChairCalendar.test.tsx src/components/clinical/OdontogramCanvas.test.tsx src/components/clinical/PeriodontogramGrid.test.tsx src/components/clinical/SoepEvolutionTimeline.test.tsx src/components/clinical/InformedConsentSheet.test.tsx src/components/treatments/TreatmentPlanWorkspace.test.tsx src/components/billing/PosCheckoutSheet.test.tsx src/components/billing/BlindCashCloseView.test.tsx src/components/billing/DentistSettlementPanel.test.tsx src/components/inventory/InventoryWorkspace.test.tsx",
+    "test:wi10": "node --import ./vitest.config.ts --test src/lib/session-idle-guard.test.ts src/components/patients/StickyPatientHeader.test.tsx src/components/patients/PatientRegistrationForm.test.tsx src/components/agenda/MultiChairCalendar.test.tsx",
+    "test:wi11": "node --import ./vitest.config.ts --test src/components/clinical/OdontogramCanvas.test.tsx src/components/clinical/PeriodontogramGrid.test.tsx src/components/clinical/SoepEvolutionTimeline.test.tsx src/components/clinical/InformedConsentSheet.test.tsx src/components/treatments/TreatmentPlanWorkspace.test.tsx",
+    "test:wi12": "node --import ./vitest.config.ts --test src/components/billing/PosCheckoutSheet.test.tsx src/components/billing/BlindCashCloseView.test.tsx src/components/billing/DentistSettlementPanel.test.tsx src/components/inventory/InventoryWorkspace.test.tsx"
+  },
+  "dependencies": {
+    "next": "^15.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}

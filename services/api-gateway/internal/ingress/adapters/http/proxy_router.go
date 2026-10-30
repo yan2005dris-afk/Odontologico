@@ -2,7 +2,6 @@ package http
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httputil"
@@ -235,6 +234,12 @@ func normalizeRouteMetricLabel(path string) string {
 		return "/api/v1/patients"
 	case strings.HasPrefix(path, "/api/v1/treatments"):
 		return "/api/v1/treatments"
+	case strings.HasPrefix(path, "/api/v1/treatment-plans"):
+		return "/api/v1/treatment-plans"
+	case strings.HasPrefix(path, "/api/v1/consents"):
+		return "/api/v1/consents"
+	case strings.HasPrefix(path, "/api/v1/users"):
+		return "/api/v1/users"
 	case strings.HasPrefix(path, "/api/v1/scheduling"):
 		return "/api/v1/scheduling"
 	case strings.HasPrefix(path, "/api/v1/billing"):
@@ -250,39 +255,4 @@ func normalizeRouteMetricLabel(path string) string {
 	default:
 		return path
 	}
-}
-
-func defaultOpenAPIJSON() string {
-	doc := map[string]any{
-		"openapi": "3.0.3",
-		"info": map[string]any{
-			"title":   "SIGO-Dental Edge API Gateway",
-			"version": "1.0.0",
-		},
-		"paths": map[string]any{
-			"/healthz":                      map[string]any{"get": map[string]any{"operationId": "getHealthz"}},
-			"/metrics":                      map[string]any{"get": map[string]any{"operationId": "getMetrics"}},
-			"/openapi.json":                 map[string]any{"get": map[string]any{"operationId": "getOpenAPISpec"}},
-			"/api/v1/auth/login":            map[string]any{"post": map[string]any{"operationId": "authLogin"}},
-			"/api/v1/auth/mfa/verify":       map[string]any{"post": map[string]any{"operationId": "authVerifyMFA"}},
-			"/api/v1/patients":              map[string]any{"get": map[string]any{"operationId": "listPatients"}, "post": map[string]any{"operationId": "createPatient"}},
-			"/api/v1/clinical/odontograms":  map[string]any{"get": map[string]any{"operationId": "getOdontogram"}, "post": map[string]any{"operationId": "updateOdontogram"}},
-			"/api/v1/treatments/plans":      map[string]any{"post": map[string]any{"operationId": "createTreatmentPlan"}},
-			"/api/v1/scheduling/appointments": map[string]any{"post": map[string]any{"operationId": "createAppointment"}},
-			"/api/v1/billing/invoices":      map[string]any{"get": map[string]any{"operationId": "listInvoices"}, "post": map[string]any{"operationId": "createInvoice"}},
-			"/api/v1/settlements/commissions": map[string]any{"get": map[string]any{"operationId": "listSettlements"}},
-			"/api/v1/inventory/supplies":    map[string]any{"post": map[string]any{"operationId": "upsertInventorySupplies"}},
-			"/api/v1/audit/logs":            map[string]any{"get": map[string]any{"operationId": "listAuditLogs"}},
-		},
-	}
-	b, _ := json.Marshal(doc)
-	return string(b)
-}
-
-func buildOpenAPIJSONFromYAML(yamlRaw string) string {
-	// Ensure valid OpenAPI 3.0 JSON representation including source specification metadata.
-	if !strings.Contains(yamlRaw, "openapi: 3.0") {
-		return defaultOpenAPIJSON()
-	}
-	return defaultOpenAPIJSON()
 }

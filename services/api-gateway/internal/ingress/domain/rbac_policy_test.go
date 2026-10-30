@@ -11,9 +11,9 @@ func TestClaimsValidation(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 
 	tests := []struct {
-		name      string
-		claims    domain.Claims
-		wantErr   error
+		name    string
+		claims  domain.Claims
+		wantErr error
 	}{
 		{
 			name: "valid claims for dentist with MFA",
@@ -105,6 +105,128 @@ func TestRequiresMFA(t *testing.T) {
 			got := domain.RequiresMFA(tc.path)
 			if got != tc.want {
 				t.Errorf("RequiresMFA(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+// wi-15 (S4): the read-contract routes added under /api/v1/users,
+// /api/v1/treatment-plans and /api/v1/consents.
+func TestRequiresMFA_ReadContractRoutes(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/api/v1/treatment-plans", false},
+		{"/api/v1/treatment-plans/plan-1/approve", true},
+		{"/api/v1/treatment-plans/plan-1/items/item-1/complete", true},
+		{"/api/v1/patients/pat-1/treatment-plans", false},
+		{"/api/v1/consents", false},
+		{"/api/v1/users", false},
+		{"/api/v1/patients/pat-1/consents", false},
+		{"/api/v1/patients/pat-1/consents/cons-1/sign", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			got := domain.RequiresMFA(tc.path)
+			if got != tc.want {
+				t.Errorf("RequiresMFA(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+// wi-15 (S4): the edge evaluates the concrete HTTP method, so a write on a
+// patient-scoped collection still demands a fresh MFA challenge while its
+// listing does not.
+func TestRequiresMFAForMethod_ReadContractRoutes(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{"GET", "/api/v1/treatment-plans", false},
+		{"POST", "/api/v1/treatment-plans/plan-1/approve", true},
+		{"DELETE", "/api/v1/treatment-plans/plan-1/items/item-1", true},
+		{"GET", "/api/v1/consents", false},
+		{"GET", "/api/v1/users", false},
+		{"GET", "/api/v1/patients/pat-1/consents", false},
+		{"POST", "/api/v1/patients/pat-1/consents", true},
+		{"POST", "/api/v1/patients/pat-1/consents/cons-1/sign", true},
+		{"GET", "/api/v1/patients/pat-1/treatment-plans", false},
+		{"POST", "/api/v1/patients/pat-1/treatment-plans", true},
+		{"GET", "/api/v1/patients/pat-1/anamnesis", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			got := domain.RequiresMFAForMethod(tc.method, tc.path)
+			if got != tc.want {
+				t.Errorf("RequiresMFAForMethod(%q, %q) = %v, want %v", tc.method, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRBACPolicy_ReadContractRoutes(t *testing.T) {
+	policy := domain.NewDefaultRBACPolicy()
+
+	tests := []struct {
+		name   string
+		role   domain.Role
+		method string
+		path   string
+		want   bool
+	}{
+		// /api/v1/users is administrative only (SRS §3).
+		{name: "admin lists the clinic users", role: domain.RoleAdmin, method: "GET", path: "/api/v1/users", want: true},
+		{name: "dentist cannot list the clinic users", role: domain.RoleDentist, method: "GET", path: "/api/v1/users", want: false},
+		{name: "receptionist cannot list the clinic users", role: domain.RoleReceptionist, method: "GET", path: "/api/v1/users", want: false},
+		{name: "assistant cannot list the clinic users", role: domain.RoleAssistant, method: "GET", path: "/api/v1/users", want: false},
+		{name: "auditor cannot list the clinic users", role: domain.RoleAuditor, method: "GET", path: "/api/v1/users", want: false},
+
+		// /api/v1/treatment-plans: parity with /api/v1/treatments.
+		{name: "dentist reads the treatment plan list", role: domain.RoleDentist, method: "GET", path: "/api/v1/treatment-plans", want: true},
+		{name: "dentist approves a treatment plan", role: domain.RoleDentist, method: "POST", path: "/api/v1/treatment-plans/plan-1/approve", want: true},
+		{name: "receptionist reads the treatment plan list", role: domain.RoleReceptionist, method: "GET", path: "/api/v1/treatment-plans", want: true},
+		{name: "receptionist cannot approve a treatment plan", role: domain.RoleReceptionist, method: "POST", path: "/api/v1/treatment-plans/plan-1/approve", want: false},
+		{name: "assistant reads the treatment plan list", role: domain.RoleAssistant, method: "GET", path: "/api/v1/treatment-plans", want: true},
+		{name: "assistant cannot approve a treatment plan", role: domain.RoleAssistant, method: "POST", path: "/api/v1/treatment-plans/plan-1/approve", want: false},
+		{name: "auditor cannot read the treatment plan list", role: domain.RoleAuditor, method: "GET", path: "/api/v1/treatment-plans", want: false},
+
+		// /api/v1/consents: clinical data, so the auditor has no access at all.
+		{name: "dentist reads the global consent list", role: domain.RoleDentist, method: "GET", path: "/api/v1/consents", want: true},
+		{name: "receptionist reads the global consent list", role: domain.RoleReceptionist, method: "GET", path: "/api/v1/consents", want: true},
+		{name: "receptionist signs a consent", role: domain.RoleReceptionist, method: "POST", path: "/api/v1/patients/pat-1/consents/cons-1/sign", want: true},
+		{name: "assistant reads the consent list", role: domain.RoleAssistant, method: "GET", path: "/api/v1/consents", want: true},
+		{name: "assistant cannot sign a consent", role: domain.RoleAssistant, method: "POST", path: "/api/v1/patients/pat-1/consents/cons-1/sign", want: false},
+		{name: "auditor cannot read the consent list", role: domain.RoleAuditor, method: "GET", path: "/api/v1/consents", want: false},
+		{name: "auditor cannot read the patient consents", role: domain.RoleAuditor, method: "GET", path: "/api/v1/patients/pat-1/consents", want: false},
+
+		// The auditor is a financial/inventory reconciler, never a clinical reader.
+		{name: "auditor cannot read the patient record", role: domain.RoleAuditor, method: "GET", path: "/api/v1/patients", want: false},
+
+		// Patient-scoped sub-resources must not fall back to the patient-record policy.
+		{name: "receptionist reads the patient treatment plans", role: domain.RoleReceptionist, method: "GET", path: "/api/v1/patients/pat-1/treatment-plans", want: true},
+		{name: "receptionist cannot create a patient treatment plan", role: domain.RoleReceptionist, method: "POST", path: "/api/v1/patients/pat-1/treatment-plans", want: false},
+		{name: "dentist creates a patient treatment plan", role: domain.RoleDentist, method: "POST", path: "/api/v1/patients/pat-1/treatment-plans", want: true},
+		{name: "receptionist reads the patient consents", role: domain.RoleReceptionist, method: "GET", path: "/api/v1/patients/pat-1/consents", want: true},
+		{name: "receptionist creates a patient consent", role: domain.RoleReceptionist, method: "POST", path: "/api/v1/patients/pat-1/consents", want: true},
+		{name: "assistant reads the patient consents", role: domain.RoleAssistant, method: "GET", path: "/api/v1/patients/pat-1/consents", want: true},
+		{name: "assistant cannot create a patient consent", role: domain.RoleAssistant, method: "POST", path: "/api/v1/patients/pat-1/consents", want: false},
+
+		// The admin is not blocked by the known-route registry.
+		{name: "admin reads the treatment plan list", role: domain.RoleAdmin, method: "GET", path: "/api/v1/treatment-plans", want: true},
+		{name: "admin reads the consent list", role: domain.RoleAdmin, method: "GET", path: "/api/v1/consents", want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := policy.IsAllowed(tc.role, tc.method, tc.path)
+			if got != tc.want {
+				t.Errorf("IsAllowed(role=%q, method=%q, path=%q) = %v, want %v",
+					tc.role, tc.method, tc.path, got, tc.want)
 			}
 		})
 	}
@@ -377,4 +499,3 @@ func TestHS256Verifier_VerifyToken(t *testing.T) {
 		t.Fatalf("expected root path not to require MFA")
 	}
 }
-

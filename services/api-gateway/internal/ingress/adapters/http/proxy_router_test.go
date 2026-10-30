@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -334,6 +335,76 @@ func TestProxyRouter_SpecsS2ToS6(t *testing.T) {
 			t.Fatalf("expected gateway_request_duration_ms in /metrics output, got:\n%s", metricsText.String())
 		}
 	})
+}
+
+// wi-15 (S4): the budget approval used to fall into UpstreamUnknown and answer
+// 404 ROUTE_NOT_FOUND; it must now reach the clinical-agenda upstream.
+func TestProxyRouter_TreatmentPlanApprovalReachesTheUpstream(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	secret := "approval-routing-secret"
+
+	var clinicalPath string
+	clinicalUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clinicalPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"APPROVED"}`))
+	}))
+	defer clinicalUpstream.Close()
+
+	billingUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer billingUpstream.Close()
+
+	sessionStore := redisadapter.NewInMemorySessionStore(func() time.Time { return now })
+	router, err := httpadapter.NewProxyRouter(
+		application.NewGatewayService(
+			domain.NewHS256Verifier(secret, func() time.Time { return now }),
+			sessionStore,
+			httpadapter.NewTokenBucketRateLimiter(100, 100, func() time.Time { return now }),
+			domain.NewDefaultRBACPolicy(),
+		),
+		nil,
+		httpadapter.RouterConfig{
+			ClinicalAgendaURL: clinicalUpstream.URL,
+			BillingStockURL:   billingUpstream.URL,
+			AllowedOrigin:     "https://portal.sigo-dental.local",
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewProxyRouter failed: %v", err)
+	}
+
+	gatewayServer := httptest.NewServer(router)
+	defer gatewayServer.Close()
+
+	sessionStore.RegisterSession("sess-approver", 900*time.Second)
+	token, _ := domain.SignHS256Token(domain.Claims{
+		Subject:     "dentist-uuid-42",
+		SessionID:   "sess-approver",
+		Role:        domain.RoleDentist,
+		MFAVerified: true,
+		ExpiresAt:   now.Add(30 * time.Minute).Unix(),
+	}, secret)
+
+	req, _ := http.NewRequest(http.MethodPost, gatewayServer.URL+"/api/v1/treatment-plans/plan-1/approve", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 OK, got %d: %s", resp.StatusCode, string(body))
+	}
+	if clinicalPath != "/api/v1/treatment-plans/plan-1/approve" {
+		t.Fatalf("expected the approval to reach the clinical upstream, got %q", clinicalPath)
+	}
 }
 
 func TestRedisSessionStore_RESPProtocol(t *testing.T) {

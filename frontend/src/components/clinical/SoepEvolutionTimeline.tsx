@@ -82,14 +82,14 @@ export function renderSoepEvolutionTimelineHtml(props: {
 
       const actionButtonsHtml = locked
         ? `<div class="flex items-center gap-2">
-            <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-white font-semibold">Bloqueada (RN-01 · >24h)</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-white font-semibold">Bloqueada (RN-01 · &gt;24h)</span>
             <button type="button" data-action="open-addendum-sheet" class="min-h-[44px] px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold">
               Agregar Adenda Firmada
             </button>
           </div>`
         : `<div class="flex items-center gap-2">
             <button type="button" data-action="edit-soep" class="min-h-[44px] px-3 py-1.5 rounded border border-slate-300 text-xs font-medium">
-              Editar Nota (Ventana <24h)
+              Editar Nota (Ventana &lt;24h)
             </button>
           </div>`;
 

@@ -53,18 +53,6 @@ func (r *ConsentRepository) GetConsentByID(_ context.Context, patientID, consent
 	return nil, domain.ErrConsentNotFound
 }
 
-func (r *ConsentRepository) ListConsentsByPatient(_ context.Context, patientID string) ([]*domain.PatientConsent, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	list := r.byPatient[patientID]
-	out := make([]*domain.PatientConsent, len(list))
-	for i, c := range list {
-		cp := *c
-		out[i] = &cp
-	}
-	return out, nil
-}
-
 // ListConsents returns the informed consents matching the filter, ordered by
 // creation date (descending) with the id as tiebreaker so that pagination
 // never duplicates nor skips a consent between pages.

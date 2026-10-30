@@ -9,7 +9,6 @@ import (
 type ConsentRepository interface {
 	SaveConsent(ctx context.Context, consent *domain.PatientConsent) error
 	GetConsentByID(ctx context.Context, patientID, consentID string) (*domain.PatientConsent, error)
-	ListConsentsByPatient(ctx context.Context, patientID string) ([]*domain.PatientConsent, error)
 	ListConsents(ctx context.Context, filter ConsentFilter) ([]*domain.PatientConsent, int, error)
 }
 

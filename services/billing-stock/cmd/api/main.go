@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	auditpg "github.com/sigo-dental/billing-stock/internal/audit/adapters/postgres"
@@ -56,7 +59,39 @@ func buildMux() *http.ServeMux {
 	inventoryHandler := inventoryhttp.NewInventoryHandler(inventorySvc)
 	inventoryHandler.RegisterRoutes(mux)
 
+	// Demo dataset (wi-18, S5). The repositories of the service live in
+	// memory, so the billing screens have nothing to show until the seed
+	// runs. It is opt-in through SIGO_SEED_DEMO_DATA and it is idempotent.
+	summary, err := seedDemoDataIfEnabled(context.Background(), demoSeedDeps{
+		billingRepo:    billingRepo,
+		billingSvc:     billingSvc,
+		settlementRepo: settlementRepo,
+		settlementSvc:  settlementSvc,
+		inventoryRepo:  inventoryRepo,
+		inventorySvc:   inventorySvc,
+	}, time.Now().UTC())
+	if err != nil {
+		log.Printf("could not seed the demo dataset completely: %v", err)
+	}
+	if summary.Invoices > 0 {
+		log.Printf("demo dataset seeded: %s", demoDatasetLabel(summary))
+	}
+
 	return mux
+}
+
+// envBool reads a boolean flag of the environment. It defaults to false, so
+// every optional behaviour of the service stays opt-in.
+func envBool(name string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }
 
 func main() {
